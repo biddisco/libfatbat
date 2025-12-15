@@ -25,33 +25,33 @@
 
 // Different providers use different address formats that we must accommodate in our locality
 // object.
-#ifdef HAVE_LIBFABRIC_GNI
-# define HAVE_LIBFABRIC_LOCALITY_SIZE 48
+#ifdef HAVE_LIBFATBAT_GNI
+# define HAVE_LIBFATBAT_LOCALITY_SIZE 48
 #endif
 
-#ifdef HAVE_LIBFABRIC_CXI
-# ifdef HAVE_LIBFABRIC_CXI_1_15
-#  define HAVE_LIBFABRIC_LOCALITY_SIZE sizeof(int)
+#ifdef HAVE_LIBFATBAT_CXI
+# ifdef HAVE_LIBFATBAT_CXI_1_15
+#  define HAVE_LIBFATBAT_LOCALITY_SIZE sizeof(int)
 # else
-#  define HAVE_LIBFABRIC_LOCALITY_SIZE sizeof(long int)
+#  define HAVE_LIBFATBAT_LOCALITY_SIZE sizeof(long int)
 # endif
 #endif
 
-#ifdef HAVE_LIBFABRIC_EFA
-# define HAVE_LIBFABRIC_LOCALITY_SIZE 32
+#ifdef HAVE_LIBFATBAT_EFA
+# define HAVE_LIBFATBAT_LOCALITY_SIZE 32
 #endif
 
-#if defined(HAVE_LIBFABRIC_VERBS) || defined(HAVE_LIBFABRIC_TCP) ||                                \
-    defined(HAVE_LIBFABRIC_SOCKETS) || defined(HAVE_LIBFABRIC_PSM2)
-# define HAVE_LIBFABRIC_LOCALITY_SIZE 16
+#if defined(HAVE_LIBFATBAT_VERBS) || defined(HAVE_LIBFATBAT_TCP) ||                                \
+    defined(HAVE_LIBFATBAT_SOCKETS) || defined(HAVE_LIBFATBAT_PSM2)
+# define HAVE_LIBFATBAT_LOCALITY_SIZE 16
 #endif
 
-#if defined(HAVE_LIBFABRIC_SHM)
-# define HAVE_LIBFABRIC_LOCALITY_SIZE 24
+#if defined(HAVE_LIBFATBAT_SHM)
+# define HAVE_LIBFATBAT_LOCALITY_SIZE 24
 #endif
 
-#if defined(HAVE_LIBFABRIC_LNX)
-# define HAVE_LIBFABRIC_LOCALITY_SIZE 32
+#if defined(HAVE_LIBFATBAT_LNX)
+# define HAVE_LIBFATBAT_LOCALITY_SIZE 32
 #endif
 
 namespace libfatbat {
@@ -73,8 +73,8 @@ namespace libfatbat {
   // --------------------------------------------------------------------
   namespace locality_defs {
     // the number of 32bit ints stored in our array
-    uint32_t const array_size = HAVE_LIBFABRIC_LOCALITY_SIZE;
-    uint32_t const array_length = HAVE_LIBFABRIC_LOCALITY_SIZE / 4;
+    uint32_t const array_size = HAVE_LIBFATBAT_LOCALITY_SIZE;
+    uint32_t const array_length = HAVE_LIBFATBAT_LOCALITY_SIZE / 4;
   }    // namespace locality_defs
 
   struct locality

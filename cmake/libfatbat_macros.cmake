@@ -34,9 +34,9 @@ function(libfatbat_write_config_defines_file)
     list(REMOVE_DUPLICATES DEFINITIONS_VAR)
   endif()
 
-  set(project_config_defines "\n")
+  set(namespace_config_defines "\n")
   foreach(def ${DEFINITIONS_VAR})
-    set(project_config_defines "${project_config_defines}#define ${def}\n")
+    set(namespace_config_defines "${namespace_config_defines}#define ${def}\n")
   endforeach()
 
   # if the user has not specified a template, generate a proper header file
@@ -48,7 +48,7 @@ function(libfatbat_write_config_defines_file)
         "#define FATBAT_CONFIG_${NAMESPACE_UPPER}_HPP\n"
     )
     set(TEMP_FILENAME "${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/${NAMESPACE_UPPER}")
-    file(WRITE ${TEMP_FILENAME} ${PREAMBLE} ${project_config_defines} "#endif\n")
+    file(WRITE ${TEMP_FILENAME} ${PREAMBLE} ${namespace_config_defines} "#endif\n")
     configure_file("${TEMP_FILENAME}" "${OPTION_FILENAME}" COPYONLY)
     file(REMOVE "${TEMP_FILENAME}")
   else()
@@ -81,41 +81,22 @@ set_property(
 )
 
 libfatbat_add_config_define_namespace(
-  DEFINE
-  HAVE_LIBFABRIC_PROVIDER
-  VALUE
-  "\"${FATBAT_PROVIDER}\""
-  NAMESPACE
-  libfabric
+  DEFINE HAVE_LIBFATBAT_PROVIDER VALUE "\"${FATBAT_PROVIDER}\"" NAMESPACE libfatbat
 )
 
 option(FATBAT_V1_API "Support older libfabric@1.15" OFF)
 if(FATBAT_V1_API)
-  libfatbat_add_config_define_namespace(DEFINE FATBAT_V1_API NAMESPACE libfabric)
+  libfatbat_add_config_define_namespace(DEFINE FATBAT_V1_API NAMESPACE libfatbat)
 endif()
 
 # Map provider string to uppercase and create a define
 string(TOUPPER "${FATBAT_PROVIDER}" PROVIDER_UPPER)
-libfatbat_add_config_define_namespace(DEFINE "HAVE_LIBFABRIC_${PROVIDER_UPPER}" NAMESPACE libfabric)
+libfatbat_add_config_define_namespace(DEFINE "HAVE_LIBFATBAT_${PROVIDER_UPPER}" NAMESPACE libfatbat)
 
 # Special handling for deprecated or extra cases
 if(FATBAT_PROVIDER STREQUAL "sockets")
   message(
-    WARNING
-      "The
-      Sockets
-      provider
-      is
-      deprecated
-      in
-      favor
-      of
-      the
-      tcp,
-      udp,
-      and
-      utility
-      providers"
+    WARNING "The Sockets provider is deprecated in favor of the tcp, udp, and utility providers"
   )
 endif()
 

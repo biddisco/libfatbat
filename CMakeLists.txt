@@ -101,6 +101,7 @@ target_include_directories(libfatbat INTERFACE "$<BUILD_INTERFACE:${PROJECT_BINA
 # link to cuda to prevent link errors
 # ------------------------------------------------------------------------------
 if(HWMALLOC_ENABLE_DEVICE)
+  target_compile_definitions(libfatbat PUBLIC LIBFATBAT_ENABLE_DEVICE)
   include(CheckLanguage)
   check_language(CUDA)
 
@@ -124,11 +125,7 @@ set(LIBFATBAT_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 # Write options to file in build dir
 # ------------------------------------------------------------------------------
 libfatbat_write_config_defines_file(
-  NAMESPACE
-  libfatbat
-  FILENAME
-  "${CMAKE_CURRENT_BINARY_DIR}/libfatbat_defines.hpp"
-  TEMPLATE
+  NAMESPACE libfatbat FILENAME "${CMAKE_CURRENT_BINARY_DIR}/libfatbat_defines.hpp" TEMPLATE
   "cmake/libfatbat_defines_template.hpp"
 )
 

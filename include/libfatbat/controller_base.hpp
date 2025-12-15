@@ -43,7 +43,7 @@
 
 // #define DISABLE_FI_INJECT
 // #define EXCESSIVE_POLLING_BACKOFF_MICRO_S 50
-
+ 
 // ------------------------------------------------------------------
 
 // ----------------------------------------
@@ -159,7 +159,7 @@ static endpoint_type libfabric_endpoint_type()
 // ------------------------------------------------
 // Needed on Cray for GNI extensions
 // ------------------------------------------------
-#ifdef HAVE_LIBFABRIC_GNI
+#ifdef HAVE_LIBFATBAT_GNI
 # include "rdma/fi_ext_gni.h"
 // #define OOMPH_GNI_REG "none"
 # define OOMPH_GNI_REG "internal"
@@ -575,9 +575,9 @@ public:
       }
       else if (endpoint_type_ != endpoint_type::scalableTxRx)
       {
-#if defined(HAVE_LIBFABRIC_SOCKETS) || defined(HAVE_LIBFABRIC_TCP) ||                              \
-    defined(HAVE_LIBFABRIC_SHM) || defined(HAVE_LIBFABRIC_VERBS) || defined(HAVE_LIBFABRIC_CXI) || \
-    defined(HAVE_LIBFABRIC_EFA)
+#if defined(HAVE_LIBFATBAT_SOCKETS) || defined(HAVE_LIBFATBAT_TCP) ||                              \
+    defined(HAVE_LIBFATBAT_SHM) || defined(HAVE_LIBFATBAT_VERBS) || defined(HAVE_LIBFATBAT_CXI) || \
+    defined(HAVE_LIBFATBAT_EFA)
         // it appears that the rx endpoint cannot be enabled if it does not
         // have a Tx CQ (at least when using sockets), so we create a dummy
         // Tx CQ and bind it just to stop libfabric from triggering an error.
@@ -779,19 +779,19 @@ public:
     // --------------------------------------------------------------------
     constexpr std::int64_t memory_registration_mode_flags()
     {
-#if defined(HAVE_LIBFABRIC_LNX)
+#if defined(HAVE_LIBFATBAT_LNX)
       return FI_MR_HMEM;
 #endif
       std::int64_t base_flags = FI_MR_ALLOCATED;    // | FI_MR_VIRT_ADDR | FI_MR_PROV_KEY;
-#if HWMALLOC_ENABLE_DEVICE
+#if LIBFATBAT_ENABLE_DEVICE
       base_flags = base_flags | FI_MR_HMEM;
 #endif
       base_flags = base_flags | FI_MR_LOCAL;
 
-#if defined(HAVE_LIBFABRIC_CXI)
+#if defined(HAVE_LIBFATBAT_CXI)
       return base_flags | FI_MR_ENDPOINT;
 
-#elif defined(HAVE_LIBFABRIC_EFA)
+#elif defined(HAVE_LIBFATBAT_EFA)
       return base_flags | FI_MR_MMU_NOTIFY | FI_MR_ENDPOINT;
 #else
       return base_flags;
@@ -818,7 +818,7 @@ public:
       else { fabric_hints_->fabric_attr->prov_name = strdup(provider.c_str()); }
       LF_DEB(cnb_deb, debug(str<>("fabric provider"), fabric_hints_->fabric_attr->prov_name));
 
-#if defined(HAVE_LIBFABRIC_CXI)
+#if defined(HAVE_LIBFATBAT_CXI)
       // libfabric domain for multi-nic CXI provider
       char const* cxi_domain = std::getenv("FI_CXI_DEVICE_NAME");
       if (cxi_domain == nullptr)
@@ -932,7 +932,7 @@ public:
       ret = fi_domain(fabric_, fabric_info_, &fabric_domain_, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_domain");
 
-#if defined(HAVE_LIBFABRIC_GNI)
+#if defined(HAVE_LIBFATBAT_GNI)
       {
         [[maybe_unused]] auto scp =
             NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), "GNI memory registration block");
@@ -1006,7 +1006,7 @@ public:
       return static_cast<Derived*>(this)->set_src_dst_addresses(info, tx);
     }
 
-#ifdef HAVE_LIBFABRIC_GNI
+#ifdef HAVE_LIBFATBAT_GNI
     // --------------------------------------------------------------------
     // Special GNI extensions to disable memory registration cache
 
@@ -1370,9 +1370,9 @@ public:
     // --------------------------------------------------------------------
     inline constexpr bool bypass_tx_lock()
     {
-#if defined(HAVE_LIBFABRIC_GNI)
+#if defined(HAVE_LIBFATBAT_GNI)
       return true;
-#elif defined(HAVE_LIBFABRIC_CXI)
+#elif defined(HAVE_LIBFATBAT_CXI)
       // @todo : cxi provider is not yet thread safe using scalable endpoints
       return false;
 #else
@@ -1398,7 +1398,7 @@ public:
     // --------------------------------------------------------------------
     inline constexpr bool bypass_rx_lock()
     {
-#ifdef HAVE_LIBFABRIC_GNI
+#ifdef HAVE_LIBFATBAT_GNI
       return true;
 #else
       return (

@@ -21,7 +21,7 @@
 #include <iostream>
 #include <utility>
 
-#ifdef HWMALLOC_ENABLE_DEVICE
+#ifdef LIBFATBAT_ENABLE_DEVICE
 # include <hwmalloc/device.hpp>
 #endif
 // ------------------------------------------------------------------
@@ -101,7 +101,7 @@ size_t              sub_mr_cnt;
 
       if (device_id >= 0)
       {
-#ifdef HWMALLOC_ENABLE_DEVICE
+#ifdef LIBFATBAT_ENABLE_DEVICE
         attr.device.cuda = device_id;
         int handle = hwmalloc::get_device_id();
         attr.device.cuda = handle;
@@ -250,7 +250,7 @@ size_t              sub_mr_cnt;
     friend std::ostream& operator<<(std::ostream& os, memory_handle const& region)
     {
       (void) region;
-#if 1 || has_debug
+#if has_debug
       using namespace NS_DEBUG;
       os << "region "
          << hptr(&region)
@@ -262,8 +262,6 @@ size_t              sub_mr_cnt;
          << hptr(region.region_ ? region_provider::get_local_key(region.region_) : nullptr)
          << " rem key "
          << hptr(region.region_ ? region_provider::get_remote_key(region.region_) : 0);
-      ///// clang-format off
-      ///// clang-format on
 #endif
       return os;
     }
@@ -379,10 +377,9 @@ protected:
     {
       (void) region;
 #if has_debug
-      // clang-format off
-            os << *static_cast<const memory_handle*>(&region)
-               << " base address " << NS_DEBUG::hptr(region.base_addr_);
-      // clang-format on
+      os << *static_cast<const memory_handle*>(&region)    //
+         << " base address "                               //
+         << NS_DEBUG::hptr(region.base_addr_);             //
 #endif
       return os;
     }
