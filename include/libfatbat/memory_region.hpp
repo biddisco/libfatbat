@@ -32,29 +32,29 @@ namespace libfatbat {
 
   /*
 struct fi_mr_attr {
-union {
-    const struct iovec *mr_iov;
-    const struct fi_mr_dmabuf *dmabuf;
-};
-size_t              iov_count;
-uint64_t            access;
-uint64_t            offset;
-uint64_t            requested_key;
-void               *context;
-size_t              auth_key_size;
-uint8_t            *auth_key;
-enum fi_hmem_iface  iface;
-union {
-    uint64_t        reserved;
-    int             cuda;
-    int             ze;
-    int             neuron;
-    int             synapseai;
-} device;
-void                *hmem_data;
-size_t               page_size;
-const struct fid_mr *base_mr;
-size_t              sub_mr_cnt;
+    union {
+        const struct iovec        *mr_iov;
+        const struct fi_mr_dmabuf *dmabuf;
+    };
+    size_t              iov_count;
+    uint64_t            access;
+    uint64_t            offset;
+    uint64_t            requested_key;
+    void               *context;
+    size_t              auth_key_size;
+    uint8_t            *auth_key;
+    enum fi_hmem_iface  iface;
+    union {
+        uint64_t        reserved;
+        int             cuda;
+        int             ze;
+        int             neuron;
+        int             synapseai;
+    } device;
+    void                *hmem_data;
+    size_t               page_size;
+    const struct fid_mr *base_mr;
+    size_t               sub_mr_cnt;
 };
 
 */
@@ -377,7 +377,7 @@ protected:
     {
       (void) region;
 #if has_debug
-      os << *static_cast<const memory_handle*>(&region)    //
+      os << *static_cast<memory_handle const*>(&region)    //
          << " base address "                               //
          << NS_DEBUG::hptr(region.base_addr_);             //
 #endif

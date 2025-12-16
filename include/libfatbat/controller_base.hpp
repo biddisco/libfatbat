@@ -43,7 +43,7 @@
 
 // #define DISABLE_FI_INJECT
 // #define EXCESSIVE_POLLING_BACKOFF_MICRO_S 50
- 
+
 // ------------------------------------------------------------------
 
 // ----------------------------------------
@@ -833,25 +833,27 @@ public:
 
       // get an info object to see what might be available before we set any flags
       uint64_t flags = 0;
+      struct fi_info* init_fabric_info_;
       int ret = fi_getinfo(FI_VERSION(LIBFABRIC_FI_VERSION_MAJOR, LIBFABRIC_FI_VERSION_MINOR),
-          nullptr, nullptr, flags, fabric_hints_, &fabric_info_);
+          nullptr, nullptr, flags, fabric_hints_, &init_fabric_info_);
       if (ret) throw libfatbat::fabric_error(ret, "Failed to get fabric info");
-      if (display_fabric_info_ && fabric_info_)
+      if (display_fabric_info_ && init_fabric_info_)
       {
         std::array<char, 8192> buf;
         LF_DEB(cnb_err,
             trace(str<>("Fabric info"), "pre-check ->", fabric_hints_->fabric_attr->prov_name, "\n",
-                fi_tostr_r(buf.data(), buf.size(), fabric_info_, FI_TYPE_INFO)));
+                fi_tostr_r(buf.data(), buf.size(), init_fabric_info_, FI_TYPE_INFO)));
       }
 
       // set capabilities we want to request
-      uint64_t all_caps = caps_flags(fabric_info_->rx_attr->caps | fabric_info_->tx_attr->caps);
+      uint64_t all_caps =
+          caps_flags(init_fabric_info_->rx_attr->caps | init_fabric_info_->tx_attr->caps);
 
       // fabric_hints_->caps = all_caps;
-      fabric_hints_->tx_attr->caps = fabric_info_->tx_attr->caps & all_caps;
-      fabric_hints_->rx_attr->caps = fabric_info_->rx_attr->caps & all_caps;
+      fabric_hints_->tx_attr->caps = init_fabric_info_->tx_attr->caps & all_caps;
+      fabric_hints_->rx_attr->caps = init_fabric_info_->rx_attr->caps & all_caps;
 
-      if ((fabric_info_->mode & FI_CONTEXT) == 0)
+      if ((init_fabric_info_->mode & FI_CONTEXT) == 0)
       {
         std::array<char, 1024> buf;
         LF_DEB(cnb_err,
@@ -859,7 +861,7 @@ public:
                 fi_tostr_r(
                     buf.data(), buf.size(), &fabric_hints_->domain_attr->mode, FI_TYPE_MODE)));
       }
-      fabric_hints_->domain_attr->name = strdup(fabric_info_->domain_attr->name);
+      fabric_hints_->domain_attr->name = strdup(init_fabric_info_->domain_attr->name);
 
       // Enable/Disable the use of progress threads
       auto progress = libfabric_progress_type();
@@ -895,6 +897,7 @@ public:
       ret = fi_getinfo(FI_VERSION(LIBFABRIC_FI_VERSION_MAJOR, LIBFABRIC_FI_VERSION_MINOR), nullptr,
           nullptr, flags, fabric_hints_, &fabric_info_);
       if (ret) throw libfatbat::fabric_error(ret, "Failed to get fabric info");
+      fi_freeinfo(init_fabric_info_);
 
       if (rootnode)
       {
