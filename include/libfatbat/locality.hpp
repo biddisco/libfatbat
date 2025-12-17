@@ -171,12 +171,12 @@ namespace libfatbat {
 
     inline char* fabric_data_writable() { return reinterpret_cast<char*>(data_.data()); }
 
-    std::string to_str() const
+    std::string to_str(struct fid_av* av = nullptr) const
     {
       char sbuf[256];
       size_t buflen = 256;
-      if (!av_) { return "No address vector"; }
-      char const* straddr_ret = fi_av_straddr(av_, data_.data(), sbuf, &buflen);
+      if (!av_ && !av) { return "No address vector"; }
+      char const* straddr_ret = fi_av_straddr(av_ ? av_ : av, data_.data(), sbuf, &buflen);
       std::string result = straddr_ret ? straddr_ret : "Address formatting Error";
       return result;
     }

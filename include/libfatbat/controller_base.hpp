@@ -1,5 +1,5 @@
 /*
- * ghex-org
+ * libfatbat
  *
  * Copyright (c) 2014-2023, ETH Zurich
  * All rights reserved.
@@ -1358,7 +1358,7 @@ public:
         addr.set_fi_address(fi_addr_t(i));
         if ((ret == 0) && (addrlen <= locality_defs::array_size))
         {
-          LF_DEB(cnb_deb, debug(str<>("address vector"), dec<3>(i), addr.to_str()));
+          LF_DEB(cnb_deb, debug(str<>("address vector"), dec<3>(i), addr.to_str(av_)));
         }
         else
         {
@@ -1516,19 +1516,19 @@ public:
     {
       [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
 
-      LF_DEB(cnb_deb, trace(str<>("inserting AV"), address.to_str(), hptr(av)));
+      SPDLOG_TRACE("inserting AV {} {}", address.to_str(av), (void*) av);
       fi_addr_t fi_addr = 0xffff'ffff;
       int ret = fi_av_insert(av, address.fabric_data().data(), 1, &fi_addr, 0, nullptr);
       if (ret < 0) { throw libfatbat::fabric_error(ret, "fi_av_insert"); }
       else if (ret == 0)
       {
-        LF_DEB(cnb_deb, error("fi_av_insert called with existing address"));
+        LF_DEB(cnb_deb, error("fi_av_insert called with existing address", address.to_str(av)));
         libfatbat::fabric_error(ret, "fi_av_insert did not return 1");
       }
       // address was generated correctly, now update the locality with the fi_addr
       locality new_locality(address, fi_addr, av);
       LF_DEB(cnb_deb,
-          trace(str<>("AV add"), "rank", dec<>(fi_addr), new_locality.to_str(), "fi_addr",
+          trace(str<>("AV add"), "rank", dec<>(fi_addr), new_locality.to_str(av), "fi_addr",
               hex<4>(fi_addr)));
       return new_locality;
     }
