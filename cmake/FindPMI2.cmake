@@ -8,8 +8,8 @@ if(NOT PC_PMI_CRAY_FOUND)
   pkg_check_modules(PC_PMI QUIET pmi)
 endif()
 
-message("PC_PMI_CRAY_FOUND is ${PC_PMI_CRAY_FOUND}")
-message("PC_PMI_FOUND is ${PC_PMI_FOUND}")
+message(STATUS "PMI: PkgConfig PC_PMI_CRAY_FOUND is ${PC_PMI_CRAY_FOUND}")
+message(STATUS "PMI: PkgConfig PC_PMI_FOUND is ${PC_PMI_FOUND}")
 
 find_path(
   PMI_INCLUDE_DIR pmi2.h

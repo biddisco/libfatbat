@@ -19,7 +19,15 @@ endfunction()
 
 set_policy(CMP0028 NEW) # Double colon in target name means ALIAS or IMPORTED target
 set_policy(CMP0060 NEW) # Link libraries by full path even in implicit directories
+set_policy(CMP0074 NEW) # find_package uses XXX_ROOT vars using PackageName
+set_policy(CMP0144 NEW) # find_package uses XXX_ROOT vars using PACKAGENAME Uppercase.
 set_policy(CMP0167 NEW) # Use BoostConfig and do not use old cmake find boost
+
+# ------------------------------------------------------------------------------
+# Support testing
+# ------------------------------------------------------------------------------
+include(CTest)
+enable_testing()
 
 # ------------------------------------------------------------------------------
 # cmake includes
@@ -47,9 +55,50 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ---------------------------------------------------------------------
+# Options
+# ---------------------------------------------------------------------
+# log level, default os off
+set(FATBAT_LOG_LEVEL "off" CACHE STRING "Enable logging for messages of >=level")
+set_property(
+  CACHE FATBAT_LOG_LEVEL
+  PROPERTY STRINGS
+           off
+           trace
+           debug
+           info
+           warn
+           error
+           critical)
+
+# implement some counters of internal actions
+option(FATBAT_WITH_PERFORMANCE_COUNTERS "Enable internal counters (default: OFF)" OFF)
+
+# ---------------------------------------------------------------------
+# Libfabric
+# ---------------------------------------------------------------------
+find_package(Libfabric REQUIRED)
+
+# ---------------------------------------------------------------------
 # Boost we use crc and lockfree, but these are header only not in COMPONENTS
 # ---------------------------------------------------------------------
 find_package(Boost REQUIRED CONFIG COMPONENTS thread)
+
+# ------------------------------------------------------------------------------
+# spdlog logging library
+# ------------------------------------------------------------------------------
+string(TOUPPER ${FATBAT_LOG_LEVEL} FATBAT_LOG_LEVEL_UPPERCASE)
+if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
+  find_package(spdlog REQUIRED)
+  colour_message(STATUS ${Green} "✅ spdlog found ${spdlog_VERSION}")
+endif()
+
+# ------------------------------------------------------------------------------
+# fmt library (for formatting nice log messages)
+# ------------------------------------------------------------------------------
+if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
+  find_package(fmt REQUIRED)
+  colour_message(STATUS ${Green} "✅ fmt found ${fmt_VERSION}")
+endif()
 
 # ---------------------------------------------------------------------
 # hwmalloc dependency
@@ -76,8 +125,6 @@ endif()
 # ------------------------------------------------------------------------------
 # Performance counters
 # ------------------------------------------------------------------------------
-option(FATBAT_WITH_PERFORMANCE_COUNTERS "Enable libfabric performance counters (default: OFF)" OFF)
-
 if(FATBAT_WITH_PERFORMANCE_COUNTERS)
   libfatbat_add_config_define_namespace(DEFINE FATBAT_HAVE_PERFORMANCE_COUNTERS NAMESPACE libfatbat)
 endif()
@@ -88,6 +135,15 @@ endif()
 add_library(libfatbat INTERFACE)
 target_link_libraries(libfatbat INTERFACE Boost::thread)
 target_link_libraries(libfatbat INTERFACE HWMALLOC::hwmalloc)
+target_link_libraries(libfatbat INTERFACE libfabric::libfabric)
+
+if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
+  target_compile_definitions(libfatbat INTERFACE FATBAT_LOGGING_ENABLED=1)
+  target_compile_definitions(libfatbat
+                             INTERFACE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_${FATBAT_LOG_LEVEL_UPPERCASE})
+  target_link_libraries(libfatbat INTERFACE spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32>)
+  target_link_libraries(libfatbat INTERFACE fmt::fmt)
+endif()
 
 target_include_directories(
   libfatbat INTERFACE "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/>"
@@ -130,3 +186,5 @@ libfatbat_write_config_defines_file(
 )
 
 # target_include_directories(libfatbat PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
+add_subdirectory(test)
