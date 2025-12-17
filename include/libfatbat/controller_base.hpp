@@ -38,6 +38,7 @@
 //
 #include "libfatbat/fabric_error.hpp"
 #include "libfatbat/locality.hpp"
+#include "libfatbat/logging.hpp"
 #include "libfatbat/memory_region.hpp"
 #include "libfatbat/simple_counter.hpp"
 
@@ -210,12 +211,6 @@ static std::vector<std::pair<int, std::string>> gni_ints = {
 # define LIBFABRIC_FI_VERSION_MINOR 2
 #endif
 
-namespace NS_DEBUG {
-  // cppcheck-suppress ConfigurationNotChecked
-  static NS_DEBUG::enable_print<true> cnb_deb("CONBASE");
-  static NS_DEBUG::enable_print<true> cnb_err("CONBASE");
-}    // namespace NS_DEBUG
-
 /** @brief a class to return the number of progressed callbacks */
 struct progress_status
 {
@@ -241,7 +236,7 @@ namespace libfatbat {
   template <typename Handle>
   void fidclose(Handle fid, char const* msg)
   {
-    LF_DEB(cnb_deb, debug(str<>("closing"), msg));
+    SPDLOG_DEBUG("{:20} {}", "fid close", msg);
     int ret = fi_close(fid);
     if (ret == -FI_EBUSY) { throw libfatbat::fabric_error(ret, "fi_close EBUSY"); }
     else if (ret == FI_SUCCESS) { return; }
@@ -268,7 +263,7 @@ public:
       , tq_(tq)
       , name_(name)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__, name_);
+      SPDLOG_SCOPE("{}, {}, {}", (void*) (this), __func__, name_);
     }
 
     // to keep boost::lockfree happy, we need these copy operators
@@ -277,7 +272,7 @@ public:
 
     void cleanup()
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__, name_);
+      if (name_) { SPDLOG_SCOPE("{}, {}, {}", (void*) (this), __func__, name_); }
       if (ep_)
       {
         fidclose(&ep_->fid, "endpoint");
@@ -334,9 +329,8 @@ public:
     ~stack_endpoint()
     {
       if (!pool_) return;
-      LF_DEB(cnb_deb,
-          trace(str<>("Scalable Ep"), "used push", "ep", hptr(get_ep()), "tx cq", hptr(get_tx_cq()),
-              "rx cq", hptr(get_rx_cq())));
+      SPDLOG_TRACE("{:20} used push ep {} tx cq {} rx cq {}", "Scalable Ep", (void*) (get_ep()),
+          (void*) (get_tx_cq()), (void*) (get_rx_cq()));
       pool_->push(endpoint_);
     }
 
@@ -426,7 +420,7 @@ public:
 
     void finvoke(char const* msg, char const* err, int ret)
     {
-      LF_DEB(cnb_deb, trace(str<>(msg)));
+      SPDLOG_TRACE("{:20}", msg);
       if (ret) throw libfatbat::fabric_error(ret, err);
     }
 
@@ -460,15 +454,14 @@ public:
     // clean up all resources
     ~controller_base()
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
       unsigned int messages_handled_ = 0;
       unsigned int rma_reads_ = 0;
       unsigned int recv_deletes_ = 0;
 
-      LF_DEB(cnb_deb,
-          debug(str<>("counters"), "Received messages", dec<>(messages_handled_), "Total reads",
-              dec<>(rma_reads_), "Total deletes", dec<>(recv_deletes_), "deletes error",
-              dec<>(messages_handled_ - recv_deletes_)));
+      SPDLOG_DEBUG("{:20} Received messages {}, Total reads {}, Total deletes {}, deletes error {}",
+          "Counters", messages_handled_, rma_reads_, recv_deletes_,
+          messages_handled_ - recv_deletes_);
 
       tx_endpoints_.consume_all([](auto&& ep) { ep.cleanup(); });
       rx_endpoints_.consume_all([](auto&& ep) { ep.cleanup(); });
@@ -501,7 +494,7 @@ public:
       fidclose(&fabric_->fid, "Fabric");
 
       // clean up
-      LF_DEB(cnb_deb, debug(str<>("freeing fabric_info")));
+      SPDLOG_DEBUG("{:20}", "freeing fabric_info");
 
       fi_freeinfo(fabric_info_);
     }
@@ -516,7 +509,7 @@ public:
     endpoint_wrapper create_rx_endpoint(
         struct fid_domain* domain, struct fi_info* info, struct fid_av* av)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
       auto ep_rx = new_endpoint_active(domain, info, false);
 
       // bind address vector
@@ -537,22 +530,20 @@ public:
     void
     initialize(std::string const& provider, bool rootnode, int size, size_t threads, Args&&... args)
     {
-      LF_DEB(cnb_deb, eval([]() { std::cout.setf(std::ios::unitbuf); }));
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
 
       max_completions_per_poll_ = libfabric_completions_per_poll();
-      LF_DEB(cnb_err, debug(str<>("Poll completions"), dec<3>(max_completions_per_poll_)));
+      SPDLOG_DEBUG("{:20} {}", "Poll completions", max_completions_per_poll_);
 
       uint32_t default_val = (threads == 1) ? 0x400 : 0x4000;
       msg_rendezvous_threshold_ = libfabric_rendezvous_threshold(default_val);
-      LF_DEB(cnb_err, debug(str<>("Rendezvous threshold"), hex<4>(msg_rendezvous_threshold_)));
+      SPDLOG_DEBUG("{:20} {}", "Rendezvous threshold", msg_rendezvous_threshold_);
 
       endpoint_type_ = static_cast<endpoint_type>(libfabric_endpoint_type());
-      LF_DEB(cnb_err, debug(str<>("Endpoints"), libfabric_endpoint_string()));
-
+      SPDLOG_DEBUG("{:20} {}", "Endpoints", libfabric_endpoint_string());
       eps_ = std::make_unique<endpoints_lifetime_manager>();
 
-      LF_DEB(cnb_deb, debug(str<>("Threads"), dec<3>(threads)));
+      SPDLOG_DEBUG("{:20} {}", "Threads", threads);
 
       open_fabric(provider, threads, rootnode);
 
@@ -620,8 +611,7 @@ public:
         auto ep_sx = new_endpoint_scalable(
             fabric_domain_, fabric_info_, true /*Tx*/, threads, threads_allocated);
 
-        LF_DEB(cnb_deb,
-            trace(str<>("scalable endpoint ok"), "Contexts allocated", dec<4>(threads_allocated)));
+        SPDLOG_DEBUG("{:20} {} {}", "Scalable Ep", "ok, Contexts allocated", threads_allocated);
 
         finvoke("fi_scalable_ep_bind AV", "fi_scalable_ep_bind",
             fi_scalable_ep_bind(ep_sx, &av_->fid, 0));
@@ -631,8 +621,7 @@ public:
         //
         for (unsigned int i = 0; i < threads_allocated; i++)
         {
-          [[maybe_unused]] auto scp =
-              NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), "scalable", NS_DEBUG::dec<4>(i));
+          SPDLOG_SCOPE("{}, {}, {}", (void*) (this), "scalable", i);
 
           // For threadlocal/scalable endpoints, tx/rx resources
           fid_ep* scalable_ep_tx;
@@ -647,9 +636,8 @@ public:
           enable_endpoint(scalable_ep_tx, "tx scalable");
 
           endpoint_wrapper tx(scalable_ep_tx, nullptr, scalable_cq_tx, "tx scalable");
-          LF_DEB(cnb_deb,
-              trace(str<>("Scalable Ep"), "initial tx push", "ep", hptr(tx.get_ep()), "tx cq",
-                  hptr(tx.get_tx_cq()), "rx cq", hptr(tx.get_rx_cq())));
+          SPDLOG_DEBUG("{:20} initial tx push ep {} tx cq {} rx cq {}", "Scalable Ep",
+              (void*) (tx.get_ep()), (void*) (tx.get_tx_cq()), (void*) (tx.get_rx_cq()));
           tx_endpoints_.push(tx);
         }
 
@@ -659,7 +647,7 @@ public:
       // once enabled we can get the address
       enable_endpoint(eps_->ep_rx_.get_ep(), "rx here");
       here_ = get_endpoint_address(&eps_->ep_rx_.get_ep()->fid);
-      LF_DEB(cnb_deb, debug(str<>("setting 'here'"), here_.to_str()));
+      SPDLOG_DEBUG("{:20} {}", "setting 'here'", here_.to_str());
 
       //        // if we are using scalable endpoints, then setup tx/rx contexts
       //        // we will us a single endpoint for all Tx/Rx contexts
@@ -676,9 +664,7 @@ public:
       //                throw libfatbat::fabric_error(FI_EOTHER, "fi_scalable endpoint creation
       //                failed");
 
-      //            LF_DEB(cnb_deb, trace(str<>("scalable endpoint ok"),
-      //                                         "Contexts allocated",
-      //                                         dec<4>(threads_allocated)));
+      //            SPDLOG_TRACE("{:20} {} {}", "scalable endpoint ok", "Contexts allocated", threads_allocated);
 
       //            // prepare the stack for insertions
       //            tx_endpoints_.reserve(threads_allocated);
@@ -687,7 +673,7 @@ public:
       //            for (unsigned int i = 0; i < threads_allocated; i++)
       //            {
       //                [[maybe_unused]] auto scp =
-      //                    NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), "scalable", dec<4>(i));
+      //                    NS_DEBUG::cnb_deb.scope(NS_DEBUG::(void*)(this), "scalable", dec<4>(i));
 
       //                // For threadlocal/scalable endpoints, tx/rx resources
       //                fid_ep* scalable_ep_tx;
@@ -708,7 +694,7 @@ public:
       //                enable_endpoint(scalable_ep_tx, "tx scalable");
 
       //                endpoint_wrapper tx(scalable_ep_tx, nullptr, scalable_cq_tx, "tx
-      //                scalable"); LF_DEB(cnb_deb,
+      //                scalable"); SPDLOG_ERROR(cnb_deb,
       //                    trace(str<>("Scalable Ep"), "initial tx push", "ep",
       //                        NS_DEBUG::ptr(tx.get_ep()), "tx cq",
       //                        NS_DEBUG::ptr(tx.get_tx_cq()), "rx cq",
@@ -729,7 +715,7 @@ public:
       ////                enable_endpoint(scalable_ep_rx, "rx scalable");
 
       ////                endpoint_wrapper rx(scalable_ep_rx, scalable_cq_rx, nullptr, "rx
-      ///scalable"); /                LF_DEB(cnb_deb, /                    trace(str<>("Scalable
+      ///scalable"); /                SPDLOG_ERROR(cnb_deb, /                    trace(str<>("Scalable
       ///Ep"), "initial rx push", "ep", /                        NS_DEBUG::ptr(rx.get_ep()), "tx
       ///cq", NS_DEBUG::ptr(rx.get_tx_cq()), "rx cq", / NS_DEBUG::ptr(rx.get_rx_cq()))); /
       ///rx_endpoints_.push(rx);
@@ -748,9 +734,8 @@ public:
     uint64_t caps_flags(uint64_t available_flags) const
     {
       char buf[1024];
-      LF_DEB(cnb_err,
-          debug(str<>("caps available"), hex(available_flags),
-              fi_tostr_r(buf, 1024, &available_flags, FI_TYPE_CAPS)));
+      SPDLOG_DEBUG("{:20} {:016x} : {}", "caps available", available_flags,
+          fi_tostr_r(buf, 1024, &available_flags, FI_TYPE_CAPS));
       uint64_t required_flags = static_cast<Derived const*>(this)->caps_flags(available_flags);
       //
       uint64_t final_flags = required_flags;
@@ -759,14 +744,12 @@ public:
         uint64_t f = (1ULL << bit);
         if ((required_flags & f) && ((available_flags & f) == 0))
         {
-          LF_DEB(cnb_err,
-              error(str<>("caps flags unavailable"), fi_tostr_r(buf, 1024, &f, FI_TYPE_CAPS)));
+          SPDLOG_ERROR("{:20} {}", "caps unavailable", fi_tostr_r(buf, 1024, &f, FI_TYPE_CAPS));
           final_flags &= ~f;
         }
       }
-      LF_DEB(cnb_err,
-          debug(str<>("caps flags requested"), hex(final_flags),
-              fi_tostr_r(buf, 1024, &final_flags, FI_TYPE_CAPS)));
+      SPDLOG_DEBUG("{:20} {:016x} : {}", "caps requested", final_flags,
+          fi_tostr_r(buf, 1024, &final_flags, FI_TYPE_CAPS));
       return final_flags;
     }
 
@@ -805,7 +788,7 @@ public:
     // initialize the basic fabric/domain/name
     void open_fabric(std::string const& provider, int threads, bool rootnode)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
 
       struct fi_info* fabric_hints_ = fi_allocinfo();
       if (!fabric_hints_) { throw libfatbat::fabric_error(-1, "Failed to allocate fabric hints"); }
@@ -816,17 +799,20 @@ public:
         fabric_hints_->fabric_attr->prov_name = strdup(std::string(provider + ";ofi_rxm").c_str());
       }
       else { fabric_hints_->fabric_attr->prov_name = strdup(provider.c_str()); }
-      LF_DEB(cnb_deb, debug(str<>("fabric provider"), fabric_hints_->fabric_attr->prov_name));
+      SPDLOG_DEBUG("{:20} {}", "fabric provider", fabric_hints_->fabric_attr->prov_name);
 
 #if defined(HAVE_LIBFATBAT_CXI)
       // libfabric domain for multi-nic CXI provider
       char const* cxi_domain = std::getenv("FI_CXI_DEVICE_NAME");
       if (cxi_domain == nullptr)
       {
-        LF_DEB(cnb_err, error(str<>("Domain"), "FI_CXI_DEVICE_NAME not set"));
+        SPDLOG_WARN("{:20} {}", "Domain", "FI_CXI_DEVICE_NAME not set");
       }
-      else { fabric_hints_->domain_attr->name = strdup(cxi_domain); }
-      LF_DEB(NS_DEBUG::cnb_deb, debug(str<>("fabric domain"), fabric_hints_->domain_attr->name));
+      else
+      {
+        fabric_hints_->domain_attr->name = strdup(cxi_domain);
+        SPDLOG_DEBUG("{:20} {}", "fabric domain", fabric_hints_->domain_attr->name);
+      }
 #endif
 
       fabric_hints_->domain_attr->mr_mode = memory_registration_mode_flags();
@@ -840,9 +826,9 @@ public:
       if (display_fabric_info_ && init_fabric_info_)
       {
         std::array<char, 8192> buf;
-        LF_DEB(cnb_err,
-            trace(str<>("Fabric info"), "pre-check ->", fabric_hints_->fabric_attr->prov_name, "\n",
-                fi_tostr_r(buf.data(), buf.size(), init_fabric_info_, FI_TYPE_INFO)));
+        SPDLOG_TRACE("{:20} {} {}", "Fabric info", "pre-check ->",
+            fabric_hints_->fabric_attr->prov_name, "\n",
+            fi_tostr_r(buf.data(), buf.size(), init_fabric_info_, FI_TYPE_INFO));
       }
 
       // set capabilities we want to request
@@ -856,10 +842,8 @@ public:
       if ((init_fabric_info_->mode & FI_CONTEXT) == 0)
       {
         std::array<char, 1024> buf;
-        LF_DEB(cnb_err,
-            debug(str<>("mode FI_CONTEXT!=0"),
-                fi_tostr_r(
-                    buf.data(), buf.size(), &fabric_hints_->domain_attr->mode, FI_TYPE_MODE)));
+        SPDLOG_DEBUG("{:20} {}", "mode FI_CONTEXT!=0",
+            fi_tostr_r(buf.data(), buf.size(), &init_fabric_info_->mode, FI_TYPE_MODE));
       }
       fabric_hints_->domain_attr->name = strdup(init_fabric_info_->domain_attr->name);
 
@@ -867,11 +851,11 @@ public:
       auto progress = libfabric_progress_type();
       fabric_hints_->domain_attr->control_progress = progress;
       fabric_hints_->domain_attr->data_progress = progress;
-      LF_DEB(cnb_err, debug(str<>("progress"), libfabric_progress_string()));
+      SPDLOG_DEBUG("progress {}", libfabric_progress_string());
 
       if (threads > 1)
       {
-        LF_DEB(cnb_deb, debug(str<>("FI_THREAD_FID")));
+        SPDLOG_DEBUG("{:20}", "FI_THREAD_FID");
         // Enable thread safe mode (Does not work with psm2 provider)
         // fabric_hints_->domain_attr->threading = FI_THREAD_SAFE;
         // fabric_hints_->domain_attr->threading = FI_THREAD_FID;
@@ -879,7 +863,7 @@ public:
       }
       else
       {
-        LF_DEB(cnb_deb, debug(str<>("FI_THREAD_DOMAIN")));
+        SPDLOG_DEBUG("{:20}", "FI_THREAD_DOMAIN");
         // we serialize everything
         fabric_hints_->domain_attr->threading = FI_THREAD_DOMAIN;
       }
@@ -887,12 +871,11 @@ public:
       // Enable resource management
       fabric_hints_->domain_attr->resource_mgmt = FI_RM_ENABLED;
 
-      LF_DEB(cnb_deb, debug(str<>("fabric endpoint"), "RDM"));
+      SPDLOG_DEBUG("{:20} {}", "fabric endpoint", "RDM");
       fabric_hints_->ep_attr->type = FI_EP_RDM;
 
-      LF_DEB(cnb_deb,
-          debug(str<>("get fabric info"), "FI_VERSION", dec(LIBFABRIC_FI_VERSION_MAJOR),
-              dec(LIBFABRIC_FI_VERSION_MINOR)));
+      SPDLOG_DEBUG("{:20} {} {}.{}", "fabric info", "FI_VERSION", LIBFABRIC_FI_VERSION_MAJOR,
+          LIBFABRIC_FI_VERSION_MINOR);
 
       ret = fi_getinfo(FI_VERSION(LIBFABRIC_FI_VERSION_MAJOR, LIBFABRIC_FI_VERSION_MINOR), nullptr,
           nullptr, flags, fabric_hints_, &fabric_info_);
@@ -902,57 +885,55 @@ public:
       if (rootnode)
       {
         std::array<char, 8192> buf;
-        LF_DEB(cnb_err,
-            trace(str<>("Fabric info"), "\n",
-                fi_tostr_r(buf.data(), buf.size(), fabric_info_, FI_TYPE_INFO)));
+        SPDLOG_TRACE("{:20} \n {}", "Fabric info",
+            fi_tostr_r(buf.data(), buf.size(), fabric_info_, FI_TYPE_INFO));
       }
 
       int mrkey = (fabric_hints_->domain_attr->mr_mode & FI_MR_PROV_KEY) != 0;
-      LF_DEB(cnb_deb, debug(str<>("Requires FI_MR_PROV_KEY"), mrkey));
+      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_MR_PROV_KEY", mrkey);
 
       bool context = (fabric_hints_->mode & FI_CONTEXT) != 0;
-      LF_DEB(cnb_deb, debug(str<>("Requires FI_CONTEXT"), context));
+      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_CONTEXT", context);
 
       mrlocal = (fabric_hints_->domain_attr->mr_mode & FI_MR_LOCAL) != 0;
-      LF_DEB(cnb_deb, debug(str<>("Requires FI_MR_LOCAL"), mrlocal));
+      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_MR_LOCAL", mrlocal);
 
       mrbind = (fabric_hints_->domain_attr->mr_mode & FI_MR_ENDPOINT) != 0;
-      LF_DEB(cnb_deb, debug(str<>("Requires FI_MR_ENDPOINT"), mrbind));
+      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_MR_ENDPOINT", mrbind);
 
       /* Check if provider requires heterogeneous memory registration */
       mrhmem = (fabric_hints_->domain_attr->mr_mode & FI_MR_HMEM) != 0;
-      LF_DEB(cnb_deb, debug(str<>("Requires FI_MR_HMEM"), mrhmem));
-
+      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_MR_HMEM", mrhmem);
       bool mrhalloc = (fabric_hints_->domain_attr->mr_mode & FI_MR_ALLOCATED) != 0;
-      LF_DEB(cnb_deb, debug(str<>("Requires FI_MR_ALLOCATED"), mrhalloc));
+      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_MR_ALLOCATED", mrhalloc);
 
-      LF_DEB(cnb_deb, debug(str<>("Creating fi_fabric")));
+      SPDLOG_DEBUG("{:20}", "Creating fi_fabric");
       ret = fi_fabric(fabric_info_->fabric_attr, &fabric_, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "Failed to get fi_fabric");
 
       // Allocate a domain.
-      LF_DEB(cnb_deb, debug(str<>("Allocating domain")));
+      SPDLOG_DEBUG("{:20}", "Allocating domain");
       ret = fi_domain(fabric_, fabric_info_, &fabric_domain_, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_domain");
 
 #if defined(HAVE_LIBFATBAT_GNI)
       {
         [[maybe_unused]] auto scp =
-            NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), "GNI memory registration block");
+            NS_DEBUG::cnb_deb.scope(NS_DEBUG::(void*) (this), "GNI memory registration block");
 
-        LF_DEB(cnb_err, debug(str<>("-------"), "GNI String values"));
+        SPDLOG_ERROR(cnb_err, debug(str<>("-------"), "GNI String values"));
         // Dump out all vars for debug purposes
         for (auto& gni_data : gni_strs)
         {
           _set_check_domain_op_value<char const*>(
               gni_data.first, 0, gni_data.second.c_str(), false);
         }
-        LF_DEB(cnb_err, debug(str<>("-------"), "GNI Int values"));
+        SPDLOG_ERROR(cnb_err, debug(str<>("-------"), "GNI Int values"));
         for (auto& gni_data : gni_ints)
         {
           _set_check_domain_op_value<uint32_t>(gni_data.first, 0, gni_data.second.c_str(), false);
         }
-        LF_DEB(cnb_err, debug(str<>("-------")));
+        SPDLOG_ERROR(cnb_err, debug(str<>("-------")));
 
         // --------------------------
         // GNI_MR_CACHE
@@ -975,7 +956,7 @@ public:
         // Enable lazy deregistration in MR cache
         //
         int32_t enable = 1;
-        LF_DEB(cnb_deb, debug(str<>("setting GNI_MR_CACHE_LAZY_DEREG")));
+        SPDLOG_DEBUG("{:20}", "setting GNI_MR_CACHE_LAZY_DEREG")));
         _set_check_domain_op_value<int32_t>(
             GNI_MR_CACHE_LAZY_DEREG, enable, "GNI_MR_CACHE_LAZY_DEREG");
 
@@ -1017,7 +998,7 @@ public:
     template <typename T>
     int _set_check_domain_op_value(int op, T value, char const* info, bool set = true)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
       static struct fi_gni_ops_domain* gni_domain_ops = nullptr;
       int ret = 0;
 
@@ -1025,7 +1006,7 @@ public:
       {
         ret = fi_open_ops(
             &fabric_domain_->fid, FI_GNI_DOMAIN_OPS_1, 0, (void**) &gni_domain_ops, nullptr);
-        LF_DEB(cnb_deb,
+        SPDLOG_ERROR(cnb_deb,
             debug(
                 str<>("gni open ops"), (ret == 0 ? "OK" : "FAIL"), NS_DEBUG::ptr(gni_domain_ops)));
       }
@@ -1036,7 +1017,7 @@ public:
         ret = gni_domain_ops->set_val(
             &fabric_domain_->fid, (dom_ops_val_t) (op), reinterpret_cast<void*>(&value));
 
-        LF_DEB(cnb_deb, debug(str<>("gni set ops val"), value, (ret == 0 ? "OK" : "FAIL")));
+        SPDLOG_DEBUG("{:20} {} {} ", "gni set ops val"), value, (ret == 0 ? "OK" : "FAIL")));
       }
 
       // Get the value (so we can check that the value we set is now returned)
@@ -1044,12 +1025,13 @@ public:
       ret = gni_domain_ops->get_val(&fabric_domain_->fid, (dom_ops_val_t) (op), &new_value);
       if constexpr (std::is_integral<T>::value)
       {
-        LF_DEB(cnb_err,
+        SPDLOG_ERROR(cnb_err,
             debug(str<>("gni op val"), (ret == 0 ? "OK" : "FAIL"), info, hex<8>(new_value)));
       }
       else
       {
-        LF_DEB(cnb_err, debug(str<>("gni op val"), (ret == 0 ? "OK" : "FAIL"), info, new_value));
+        SPDLOG_ERROR(
+            cnb_err, debug(str<>("gni op val"), (ret == 0 ? "OK" : "FAIL"), info, new_value));
       }
       //
       if (ret) throw libfatbat::fabric_error(ret, std::string("setting ") + info);
@@ -1068,8 +1050,8 @@ public:
       // and we do not create two endpoint with the same src address
       struct fi_info* hints = set_src_dst_addresses(info, tx);
 
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
-      LF_DEB(cnb_deb, debug(str<>("Got info mode"), (info->mode & FI_NOTIFY_FLAGS_ONLY)));
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_DEBUG("{:20} {}", "Got info mode", (info->mode & FI_NOTIFY_FLAGS_ONLY));
 
       struct fid_ep* ep;
       int ret = fi_endpoint(domain, hints, &ep, nullptr);
@@ -1078,7 +1060,7 @@ public:
         throw libfatbat::fabric_error(ret, "fi_endpoint (too many threadlocal endpoints?)");
       }
       fi_freeinfo(hints);
-      LF_DEB(cnb_deb, debug(str<>("new_endpoint_active"), hptr(ep)));
+      SPDLOG_DEBUG("{:20} {}", "new_endpoint_active", (void*) (ep));
       return ep;
     }
 
@@ -1089,9 +1071,9 @@ public:
       // don't allow multiple threads to call endpoint create at the same time
       scoped_lock lock(controller_mutex_);
 
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
 
-      LF_DEB(cnb_deb, debug(str<>("fi_dupinfo")));
+      SPDLOG_DEBUG("{:20}", "fi_dupinfo");
       struct fi_info* hints = fi_dupinfo(info);
       if (!hints) throw libfatbat::fabric_error(0, "fi_dupinfo");
 
@@ -1107,13 +1089,13 @@ public:
       else { context_count = std::min(new_hints->domain_attr->rx_ctx_cnt, threads); }
 
       // clang-format off
-        LF_DEB(cnb_deb,
-            trace(str<>("scalable endpoint"),
+        SPDLOG_TRACE("{:20} Tx {}, Threads {}, tx_ctx_cnt {}, rx_ctx_cnt {}, context_count {}",
+                  "scalable endpoint",
                   "Tx", tx,
-                  "Threads", dec<3>(threads),
-                  "tx_ctx_cnt", dec<3>(new_hints->domain_attr->tx_ctx_cnt),
-                  "rx_ctx_cnt", dec<3>(new_hints->domain_attr->rx_ctx_cnt),
-                  "context_count", dec<3>(context_count)));
+                  "Threads", threads,
+                  "tx_ctx_cnt", new_hints->domain_attr->tx_ctx_cnt,
+                  "rx_ctx_cnt", new_hints->domain_attr->rx_ctx_cnt,
+                  "context_count", context_count);
       // clang-format on
 
       threads_allocated = context_count;
@@ -1123,7 +1105,7 @@ public:
       struct fid_ep* ep;
       ret = fi_scalable_ep(domain, new_hints, &ep, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_scalable_ep");
-      LF_DEB(cnb_deb, debug(str<>("new_endpoint_scalable"), hptr(ep)));
+      SPDLOG_DEBUG("{:20} {}", "new_endpoint_scalable", (void*) (ep));
       fi_freeinfo(hints);
       return ep;
     }
@@ -1131,8 +1113,8 @@ public:
     // --------------------------------------------------------------------
     endpoint_wrapper& get_rx_endpoint()
     {
-      static auto rx = NS_DEBUG::cnb_deb.make_timer(1, NS_DEBUG::str<>("get_rx_endpoint"));
-      LF_DEB(cnb_deb, timed(rx));
+      // static auto rx = NS_DEBUG::cnb_deb.make_timer(1, NS_DEBUG::str<>("get_rx_endpoint"));
+      // SPDLOG_ERROR(cnb_deb, timed(rx));
 
       if (endpoint_type_ == endpoint_type::scalableTxRx)
       {
@@ -1143,18 +1125,18 @@ public:
           if (!ok)
           {
             // clang-format off
-                    LF_DEB(cnb_deb, error(str<>("Scalable Ep"), "pop rx",
-                        "ep", hptr(ep.get_ep()),
-                        "tx cq", hptr(ep.get_tx_cq()),
-                        "rx cq", hptr(ep.get_rx_cq())));
+                    SPDLOG_ERROR("Scalable Ep pop rx ep {}, tx cq {}, rx cq {}",
+                        (void*)(ep.get_ep()),
+                        (void*)(ep.get_tx_cq()),
+                        (void*)(ep.get_rx_cq()));
             // clang-format on
             throw std::runtime_error("rx endpoint wrapper pop fail");
           }
           eps_->tl_srx_ = stack_endpoint(
               ep.get_ep(), ep.get_rx_cq(), ep.get_tx_cq(), ep.get_name(), &rx_endpoints_);
-          LF_DEB(cnb_deb,
-              trace(str<>("Scalable Ep"), "pop rx", "ep", hptr(eps_->tl_srx_.get_ep()), "tx cq",
-                  hptr(eps_->tl_srx_.get_tx_cq()), "rx cq", hptr(eps_->tl_srx_.get_rx_cq())));
+          SPDLOG_TRACE("{:20} pop rx ep {}, tx cq {}, rx cq {}", "Scalable Ep",
+              (void*) (eps_->tl_srx_.get_ep()), (void*) (eps_->tl_srx_.get_tx_cq()),
+              (void*) (eps_->tl_srx_.get_rx_cq()));
         }
         return eps_->tl_srx_.endpoint_;
       }
@@ -1169,8 +1151,7 @@ public:
       {
         if (eps_->tl_tx_.get_ep() == nullptr)
         {
-          [[maybe_unused]] auto scp =
-              NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__, "threadlocal");
+          SDPLOG_SCOPE((void*) (this), __func__, "threadlocal");
 
           // create a completion queue for tx endpoint
           fabric_info_->tx_attr->op_flags |= (FI_INJECT_COMPLETE | FI_COMPLETION);
@@ -1187,9 +1168,8 @@ public:
           enable_endpoint(ep_tx, "tx threadlocal");
 
           // set threadlocal endpoint wrapper
-          LF_DEB(cnb_deb,
-              trace(str<>("Threadlocal Ep"), "create Tx", "ep", hptr(ep_tx), "tx cq", hptr(tx_cq),
-                  "rx cq", hptr(nullptr)));
+          SPDLOG_TRACE("{:20} create Tx ep {}, tx cq {}, rx cq {}", "Threadlocal Ep",
+              (void*) (ep_tx), (void*) (tx_cq), (void*) (nullptr));
           // for cleaning up at termination
           endpoint_wrapper ep(ep_tx, nullptr, tx_cq, "tx threadlocal");
           tx_endpoints_.push(ep);
@@ -1206,16 +1186,15 @@ public:
           bool ok = tx_endpoints_.pop(ep);
           if (!ok)
           {
-            LF_DEB(cnb_deb,
-                error(str<>("Scalable Ep"), "pop tx", "ep", hptr(ep.get_ep()), "tx cq",
-                    hptr(ep.get_tx_cq()), "rx cq", hptr(ep.get_rx_cq())));
+            SPDLOG_ERROR("Scalable Ep pop tx ep {}, tx cq {}, rx cq {}", (void*) (ep.get_ep()),
+                (void*) (ep.get_tx_cq()), (void*) (ep.get_rx_cq()));
             throw std::runtime_error("tx endpoint wrapper pop fail");
           }
           eps_->tl_stx_ = stack_endpoint(
               ep.get_ep(), ep.get_rx_cq(), ep.get_tx_cq(), ep.get_name(), &tx_endpoints_);
-          LF_DEB(cnb_deb,
-              trace(str<>("Scalable Ep"), "pop tx", "ep", hptr(eps_->tl_stx_.get_ep()), "tx cq",
-                  hptr(eps_->tl_stx_.get_tx_cq()), "rx cq", hptr(eps_->tl_stx_.get_rx_cq())));
+          SPDLOG_TRACE("{:20} pop tx ep {}, tx cq {}, rx cq {}", "Scalable Ep",
+              (void*) (eps_->tl_stx_.get_ep()), (void*) (eps_->tl_stx_.get_tx_cq()),
+              (void*) (eps_->tl_stx_.get_rx_cq()));
         }
         return eps_->tl_stx_.endpoint_;
       }
@@ -1227,9 +1206,9 @@ public:
     // --------------------------------------------------------------------
     void bind_address_vector_to_endpoint(struct fid_ep* endpoint, struct fid_av* av)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
 
-      LF_DEB(cnb_deb, debug(str<>("Binding AV"), "to", hptr(endpoint)));
+      SPDLOG_DEBUG("{:20} {}", "Binding AV to", (void*) (endpoint));
       int ret = fi_ep_bind(endpoint, &av->fid, 0);
       if (ret) throw libfatbat::fabric_error(ret, "bind address_vector");
     }
@@ -1238,9 +1217,9 @@ public:
     void bind_queue_to_endpoint(
         struct fid_ep* endpoint, struct fid_cq*& cq, uint32_t cqtype, char const* type)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__, type);
+      SPDLOG_SCOPE("{}, {}, {}", (void*) (this), __func__, type);
 
-      LF_DEB(cnb_deb, debug(str<>("Binding CQ"), "to", hptr(endpoint), type));
+      SPDLOG_DEBUG("{:20} {} {}", "Binding CQ to", (void*) (endpoint), type);
       int ret = fi_ep_bind(endpoint, &cq->fid, cqtype);
       if (ret) throw libfatbat::fabric_error(ret, "bind cq");
     }
@@ -1248,7 +1227,7 @@ public:
     // --------------------------------------------------------------------
     fid_cq* bind_tx_queue_to_rx_endpoint(struct fi_info* info, struct fid_ep* ep)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
       info->tx_attr->op_flags |= (FI_INJECT_COMPLETE | FI_COMPLETION);
       fid_cq* tx_cq = create_completion_queue(fabric_domain_, info->tx_attr->size, "tx->rx");
       // shared send/recv endpoint - bind send cq to the recv endpoint
@@ -1259,9 +1238,9 @@ public:
     // --------------------------------------------------------------------
     void enable_endpoint(struct fid_ep* endpoint, char const* type)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__, type);
+      SPDLOG_SCOPE("{}, {}, {}", (void*) (this), __func__, type);
 
-      LF_DEB(cnb_deb, debug(str<>("Enabling endpoint"), hptr(endpoint)));
+      SPDLOG_DEBUG("{:20} {} {}", "Enabling endpoint", (void*) (endpoint), type);
       int ret = fi_enable(endpoint);
       if (ret) throw libfatbat::fabric_error(ret, "fi_enable");
     }
@@ -1269,7 +1248,7 @@ public:
     // --------------------------------------------------------------------
     locality get_endpoint_address(struct fid* id)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
 
       locality::locality_data local_addr;
       std::size_t addrlen = locality_defs::array_size;
@@ -1279,28 +1258,13 @@ public:
         std::string err = std::to_string(addrlen) + "=" + std::to_string(locality_defs::array_size);
         libfatbat::fabric_error(ret, "fi_getname - error (address size ?) " + err);
       }
-
-      // optimized out when debug logging is false
-      if constexpr (NS_DEBUG::cnb_deb.is_enabled())
-      {
-        LF_DEB(cnb_deb,
-            debug(str<>("raw address data"), "size", dec<4>(addrlen), " : ",
-                locality(local_addr, av_).to_str()));
-
-        std::stringstream temp2;
-        for (std::size_t i = 0; i < locality_defs::array_length; ++i)
-        {
-          temp2 << NS_DEBUG::hex<8>(local_addr[i]) << " - ";
-        }
-        LF_DEB(cnb_deb, debug(str<>("raw address data"), temp2.str().c_str()));
-      }
       return locality(local_addr, av_);
     }
 
     // --------------------------------------------------------------------
     fid_pep* create_passive_endpoint(struct fid_fabric* fabric, struct fi_info* info)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
 
       struct fid_pep* ep;
       int ret = fi_passive_ep(fabric, info, &ep, nullptr);
@@ -1358,12 +1322,11 @@ public:
         addr.set_fi_address(fi_addr_t(i));
         if ((ret == 0) && (addrlen <= locality_defs::array_size))
         {
-          LF_DEB(cnb_deb, debug(str<>("address vector"), dec<3>(i), addr.to_str(av_)));
+          SPDLOG_DEBUG("{:20} {:04} {}", "address vector", i, addr.to_str(av_));
         }
         else
         {
-          LF_DEB(cnb_err,
-              error(str<>("address length"), dec<3>(addrlen), dec<3>(locality_defs::array_size)));
+          SPDLOG_ERROR("address length error {} {}", addrlen, locality_defs::array_size);
           throw std::runtime_error("debug_print_av_vector : address vector "
                                    "traversal failure");
         }
@@ -1458,7 +1421,7 @@ public:
     // --------------------------------------------------------------------
     struct fid_cq* create_completion_queue(struct fid_domain* domain, size_t size, char const* type)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__, type);
+      SPDLOG_SCOPE("{}, {}, {}", (void*) (this), __func__, type);
 
       struct fid_cq* cq;
       fi_cq_attr cq_attr = {};
@@ -1467,7 +1430,7 @@ public:
       cq_attr.wait_cond = FI_CQ_COND_NONE;
       cq_attr.size = size;
       cq_attr.flags = 0 /*FI_COMPLETION*/;
-      LF_DEB(cnb_deb, trace(str<>("CQ size"), dec<4>(size)));
+      SPDLOG_TRACE("{:20} {} {}", "CQ size", size, type);
       // open completion queue on fabric domain and set context to null
       int ret = fi_cq_open(domain, &cq_attr, &cq, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_cq_open");
@@ -1477,7 +1440,7 @@ public:
     // --------------------------------------------------------------------
     fid_av* create_address_vector(struct fi_info* info, int N, int num_rx_contexts)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
 
       fid_av* av;
       fi_av_attr av_attr = {fi_av_type(0), 0, 0, 0, nullptr, nullptr, 0};
@@ -1489,7 +1452,7 @@ public:
       int rx_ctx_bits = 0;
 #ifdef RX_CONTEXTS_SUPPORT
       while (num_rx_contexts >> ++rx_ctx_bits);
-      LF_DEB(cnb_deb, debug(str<>("rx_ctx_bits"), rx_ctx_bits));
+      SPDLOG_DEBUG("{:20} {}", "rx_ctx_bits", rx_ctx_bits);
 #endif
       av_attr.rx_ctx_bits = rx_ctx_bits;
       // if contexts is nonzero, then we are using a single scalable endpoint
@@ -1498,11 +1461,11 @@ public:
       if (info->domain_attr->av_type != FI_AV_UNSPEC) { av_attr.type = info->domain_attr->av_type; }
       else
       {
-        LF_DEB(cnb_deb, debug(str<>("map FI_AV_TABLE")));
+        SPDLOG_DEBUG("{:20}", "map FI_AV_TABLE");
         av_attr.type = FI_AV_TABLE;
       }
 
-      LF_DEB(cnb_deb, debug(str<>("Creating AV")));
+      SPDLOG_DEBUG("{:20}", "AV Create");
       int ret = fi_av_open(fabric_domain_, &av_attr, &av, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_av_open");
       return av;
@@ -1514,22 +1477,20 @@ public:
     // --------------------------------------------------------------------
     locality insert_address(fid_av* av, locality const& address)
     {
-      [[maybe_unused]] auto scp = NS_DEBUG::cnb_deb.scope(NS_DEBUG::hptr(this), __func__);
+      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
 
-      SPDLOG_TRACE("inserting AV {} {}", address.to_str(av), (void*) av);
+      SPDLOG_TRACE("{:20} {} {}", "AV insert_address", address.to_str(av), (void*) av);
       fi_addr_t fi_addr = 0xffff'ffff;
       int ret = fi_av_insert(av, address.fabric_data().data(), 1, &fi_addr, 0, nullptr);
       if (ret < 0) { throw libfatbat::fabric_error(ret, "fi_av_insert"); }
       else if (ret == 0)
       {
-        LF_DEB(cnb_deb, error("fi_av_insert called with existing address", address.to_str(av)));
+        SPDLOG_ERROR("fi_av_insert called with existing address {}", address.to_str(av));
         libfatbat::fabric_error(ret, "fi_av_insert did not return 1");
       }
       // address was generated correctly, now update the locality with the fi_addr
       locality new_locality(address, fi_addr, av);
-      LF_DEB(cnb_deb,
-          trace(str<>("AV add"), "rank", dec<>(fi_addr), new_locality.to_str(av), "fi_addr",
-              hex<4>(fi_addr)));
+      SPDLOG_TRACE("{:20} {:04} {}", "AV add rank", fi_addr, new_locality.to_str(av));
       return new_locality;
     }
   };

@@ -14,13 +14,8 @@
 //
 #include <rdma/fi_errno.h>
 //
-#include "libfatbat/print.hpp"
+#include "libfatbat/logging.hpp"
 #include "libfatbat_defines.hpp"
-
-namespace NS_DEBUG {
-  // cppcheck-suppress ConfigurationNotChecked
-  static NS_DEBUG::enable_print<true> err_deb("ERROR__");
-}    // namespace NS_DEBUG
 
 namespace libfatbat {
 
@@ -32,7 +27,7 @@ public:
       : std::runtime_error(std::string(fi_strerror(-err)) + msg)
       , error_(err)
     {
-      NS_DEBUG::err_deb.error(msg, ":", fi_strerror(-err));
+      SPDLOG_ERROR("{:20}: {}", msg, fi_strerror(-err));
       std::terminate();
     }
 
@@ -40,7 +35,7 @@ public:
       : std::runtime_error(fi_strerror(-err))
       , error_(-err)
     {
-      NS_DEBUG::err_deb.error(what());
+      SPDLOG_ERROR("{:20}: {}", "fabric_error", what());
       std::terminate();
     }
 

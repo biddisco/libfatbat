@@ -16,17 +16,28 @@ template <typename... Args>
 struct scoped_var
 {
   // capture tuple elements by reference - no temp vars in constructor please
+  std::string format_;
   std::tuple<Args const&...> const message_;
   //
-  explicit scoped_var(Args const&... args)
-    : message_(args...)    //
+  explicit scoped_var(std::string format, Args const&... args)
+    : format_(format)
+    , message_(args...)    //
   {
-    SPDLOG_INFO("SCOPE >> enter << {}", message_);
+    std::string message_str_ =
+        fmt::vformat(format_, fmt::make_format_args(std::get<Args const&>(message_)...));
+    SPDLOG_INFO("{:20} {}", ">> enter <<", message_str_);
+    SPDLOG_INFO("{:20} {}", ">> enter <<", "message_str_");
+    // SPDLOG_INFO("{:20} {}", ">> enter <<",
+    //   fmt::vformat(format_, fmt::make_format_args(std::apply([](auto const&... args) { return std::make_tuple(args...); }, message_))));
   }
 
-  ~scoped_var() { SPDLOG_INFO("SCOPE << leave >> {}", message_); }
+  ~scoped_var()
+  {
+    // SPDLOG_INFO("{:20} {}", "<< leave >>",
+    // fmt::vformat(format_, fmt::make_format_args(std::apply([](auto const&... args) { return std::make_tuple(args...); }, message_))));
+  }
 };
-# define SPDLOG_SCOPE(...) scoped_var scope(__VA_ARGS__);
+# define SPDLOG_SCOPE(format, ...) scoped_var scope(format, __VA_ARGS__);
 
 #else
 

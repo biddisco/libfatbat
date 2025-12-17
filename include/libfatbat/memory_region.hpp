@@ -16,6 +16,7 @@
 #include <rdma/fi_domain.h>
 //
 #include "libfatbat/fabric_error.hpp"
+#include "libfatbat/logging.hpp"
 #include "libfatbat_defines.hpp"
 
 #include <iostream>
@@ -27,8 +28,6 @@
 // ------------------------------------------------------------------
 
 namespace libfatbat {
-
-  static NS_DEBUG::enable_print<true> mrn_deb("REGION_");
 
   /*
 struct fi_mr_attr {
@@ -72,8 +71,7 @@ struct fi_mr_attr {
         size_t len, uint64_t access_flags, uint64_t offset, uint64_t request_key,
         struct fid_mr** mr)
     {
-      [[maybe_unused]] auto scp =
-          libfatbat::mrn_deb.scope(__func__, NS_DEBUG::hptr(buf), NS_DEBUG::dec<>(len), device_id);
+      SPDLOG_SCOPE("{} {:-16x} {:03} {}", __func__, buf, len, device_id);
       //
       struct iovec addresses = {/*.iov_base = */ const_cast<void*>(buf), /*.iov_len = */ len};
       fi_mr_attr attr = {
@@ -107,12 +105,10 @@ struct fi_mr_attr {
         attr.device.cuda = handle;
 # if defined(OOMPH_DEVICE_CUDA)
         attr.iface = FI_HMEM_CUDA;
-        LF_DEB(
-            libfatbat::mrn_deb, trace(NS_DEBUG::str<>("CUDA"), "set device id", device_id, handle));
+        SPDLOG_TRACE("CUDA set device id {} {}", device_id, handle);
 # elif defined(OOMPH_DEVICE_HIP)
         attr.iface = FI_HMEM_ROCR;
-        LF_DEB(
-            libfatbat::mrn_deb, trace(NS_DEBUG::str<>("HIP"), "set device id", device_id, handle));
+        SPDLOG_TRACE("HIP set device id {} {}", device_id, handle);
 # endif
 #endif
       }
@@ -229,22 +225,7 @@ struct fi_mr_attr {
     // --------------------------------------------------------------------
     // Deregister the memory region.
     // returns 0 when successful, -1 otherwise
-    int deregister(void) const
-    {
-      if (region_ /*&& !get_user_region()*/)
-      {
-        LF_DEB(libfatbat::mrn_deb, trace(NS_DEBUG::str<>("release"), region_));
-        //
-        if (region_provider::unregister_memory(region_))
-        {
-          LF_DEB(libfatbat::mrn_deb, error("fi_close mr failed"));
-          return -1;
-        }
-        else { LF_DEB(libfatbat::mrn_deb, trace(NS_DEBUG::str<>("de-Registered region"), *this)); }
-        region_ = nullptr;
-      }
-      return 0;
-    }
+    int deregister(void) const;
 
     // --------------------------------------------------------------------
     friend std::ostream& operator<<(std::ostream& os, memory_handle const& region)
@@ -282,6 +263,34 @@ protected:
     // was allocated than it turns out was needed
     mutable uint32_t used_space_;
   };
+
+}    // namespace libfatbat
+
+template <>
+struct fmt::formatter<libfatbat::memory_handle> : fmt::ostream_formatter
+{
+};
+
+namespace libfatbat {
+  // --------------------------------------------------------------------
+  // Deregister the memory region.
+  // returns 0 when successful, -1 otherwise
+  int memory_handle::deregister(void) const
+  {
+    if (region_ /*&& !get_user_region()*/)
+    {
+      SPDLOG_TRACE("release {}", (void*) region_);
+      //
+      if (region_provider::unregister_memory(region_))
+      {
+        SPDLOG_TRACE("fi_close mr failed");
+        return -1;
+      }
+      else { SPDLOG_TRACE("de-Registered region {}", *this); }
+      region_ = nullptr;
+    }
+    return 0;
+  }
 
   // --------------------------------------------------------------------
   // a memory segment is a pinned block of memory that has been specialized
@@ -337,24 +346,21 @@ protected:
       region_ = nullptr;
       //
       base_addr_ = memory_handle::address_;
-      LF_DEB(libfatbat::mrn_deb, trace(str<>("memory_segment"), *this, device_id));
+      SPDLOG_TRACE("memory_segment {} {}", (void*) this, device_id);
 
       int ret = region_provider::fi_register_memory(
           pd, device_id, buffer, length, region_provider::access_flags(), 0, key++, &(region_));
-      if (!ret)
-      {
-        LF_DEB(libfatbat::mrn_deb, trace(str<>("Registered region"), "device", device_id, *this));
-      }
+      if (!ret) { SPDLOG_TRACE("Registered region {} device {} ", device_id, (void*) this); }
 
       if (bind_mr)
       {
         ret = fi_mr_bind(region_, (struct fid*) ep, 0);
         if (ret) { throw libfatbat::fabric_error(int(ret), "fi_mr_bind"); }
-        else { LF_DEB(libfatbat::mrn_deb, trace(str<>("Bound region"), *this)); }
+        else { SPDLOG_TRACE("Bound region {}", (void*) this); }
 
         ret = fi_mr_enable(region_);
         if (ret) { throw libfatbat::fabric_error(int(ret), "fi_mr_enable"); }
-        else { LF_DEB(libfatbat::mrn_deb, trace(str<>("Enabled region"), *this)); }
+        else { SPDLOG_TRACE("Enabled region {}", (void*) this); }
       }
     }
 

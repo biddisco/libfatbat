@@ -35,6 +35,7 @@ enable_testing()
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 include(FetchContent)
+include(Messages)
 include(libfatbat_macros)
 
 # ------------------------------------------------------------------------------
@@ -157,7 +158,7 @@ target_include_directories(libfatbat INTERFACE "$<BUILD_INTERFACE:${PROJECT_BINA
 # link to cuda to prevent link errors
 # ------------------------------------------------------------------------------
 if(HWMALLOC_ENABLE_DEVICE)
-  target_compile_definitions(libfatbat PUBLIC LIBFATBAT_ENABLE_DEVICE)
+  target_compile_definitions(libfatbat INTERFACE LIBFATBAT_ENABLE_DEVICE)
   include(CheckLanguage)
   check_language(CUDA)
 
@@ -169,7 +170,7 @@ if(HWMALLOC_ENABLE_DEVICE)
   endif()
 
   find_package(CUDAToolkit)
-  target_link_libraries(libfatbat PRIVATE CUDA::cudart)
+  target_link_libraries(libfatbat INTERFACE CUDA::cudart)
 endif()
 
 # ------------------------------------------------------------------------------

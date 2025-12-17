@@ -18,16 +18,16 @@ int main(int argx, char** argv)
   int size = -1;
 
   {
-    SPDLOG_SCOPE("PMI init");
+    SPDLOG_SCOPE("{}","PMI init");
     PMI2_Init(&spawned, &size, &rank, &appnum);
   }
   test_controller controller;
   {
-    SPDLOG_SCOPE("controller.initialize");
+    SPDLOG_SCOPE("{}", "controller.initialize");
     controller.initialize(HAVE_LIBFATBAT_PROVIDER, rank == 0, size, 1);
   }
   {
-    SPDLOG_SCOPE("controller.boot_PMI");
+    SPDLOG_SCOPE("{}", "controller.boot_PMI");
     controller.boot_PMI(rank, size);
     controller.debug_print_av_vector(size);
   }
@@ -94,11 +94,11 @@ int main(int argc, char** argv)
   test_controller controller;
 
   {
-    SPDLOG_SCOPE("controller.initialize");
+    SPDLOG_SCOPE("{}", "controller.initialize");
     controller.initialize(HAVE_LIBFATBAT_PROVIDER, rank == 0, size, 1);
   }
   {
-    SPDLOG_SCOPE("controller.boot_PMI");
+    SPDLOG_SCOPE("{}", "controller.boot_PMI");
     controller.boot_PMI(myproc, rank, size);
     controller.debug_print_av_vector(size);
   }
@@ -108,141 +108,3 @@ int main(int argc, char** argv)
   return 0;
 }
 #endif
-
-/*
-// --------------------------------------------------------------------
-// All nodes can share their addresses using this function
-void boot_PMI()
-{
-  int size;
-  int rank;
-
-  LF_DEB(NS_DEBUG::cnt_boot, debug(debug::str<>("Calling PMI init")));
-
-  if (PMIX_SUCCESS != (rc = PMIx_Init(&myproc, NULL, 0)))
-  {
-    fprintf(stderr, "Client ns %s rank %d: PMIx_Init failed: %s\n", myproc.nspace, myproc.rank,
-        PMIx_Error_string(rc));
-    exit(0);
-  }
-  fprintf(stderr, "Client ns %s rank %d pid %lu: Running\n", myproc.nspace, myproc.rank,
-      (unsigned long) pid);
-
-  using namespace libfatbat;
-  libfatbat::locality here_;
-
-  // we must pass our libfabric data to other nodes
-  // encode it as a string to put into the PMI KV store
-  std::string encoded_locality(base64_t((char const*) (&here_.fabric_data())),
-      base64_t((char const*) (&here_.fabric_data()) + locality_defs::array_size));
-
-  // std::string encoded_locality(base64_t((char const*) (fabric_data.data())),
-  //     base64_t((char const*) (fabric_data.data()) + locality_defs::array_size));
-  int encoded_length = encoded_locality.size();
-  LF_DEB(NS_DEBUG::cnt_boot,
-      debug(debug::str<>("Encoded locality as"), encoded_locality, "with length ",
-          debug::dec<>(encoded_length)));
-
-  // Key name for PMI
-  std::string pmi_key = "LIBFABRIC_" + std::to_string(rank);
-  // insert our data in the KV store
-  LF_DEB(NS_DEBUG::cnt_boot, debug(debug::str<>("PMI2_KVS_Put"), "on rank", debug::dec<>(rank)));
-  PMIx_Put(pmi_key.data(), encoded_locality.data());
-
-  // Wait for all to do the same
-  LF_DEB(NS_DEBUG::cnt_boot, debug(debug::str<>("PMI2_KVS_Fence"), "on rank", debug::dec<>(rank)));
-  PMI2_KVS_Fence();
-
-  // read libfabric data for all nodes and insert into our address vector
-  for (int i = 0; i < size; ++i)
-  {
-    locality new_locality;
-    if (i != rank)
-    {
-      // read one locality key
-      std::string pmi_key = "LIBFABRIC_" + std::to_string(i);
-      char encoded_data[locality_defs::array_size * 2];
-      int length = 0;
-      PMI2_KVS_Get(0, i, pmi_key.data(), encoded_data, encoded_length + 1, &length);
-      if (length != encoded_length)
-      {
-        NS_DEBUG::cnt_deb.error("PMI value length mismatch, expected ",
-            debug::dec<>(encoded_length), "got ", debug::dec<>(length));
-      }
-      // decode the string back to raw locality data
-      LF_DEB(NS_DEBUG::cnt_deb,
-          trace(
-              "Calling decode for ", debug::dec<>(i), " locality data on ran", debug::dec<>(rank)));
-      std::copy(binary_t(encoded_data), binary_t(encoded_data + encoded_length),
-          (new_locality.fabric_data_writable()));
-    }
-    else { new_locality = here_; }
-
-    // insert locality into address vector
-    LF_DEB(NS_DEBUG::cnt_deb,
-        trace("Calling insert_address for", debug::dec<>(i), "on rank", debug::dec<>(rank)));
-    new_locality = insert_address(av_, new_locality);
-    if (i == 0) { root_ = new_locality; }
-  }
-
-  PMI2_Finalize();
-  LF_DEB(NS_DEBUG::cnt_boot, debug("Completed PMI finalize on rank", debug::dec<>(rank)));
-}
-*/
-
-// int main(int argc, char** argv)
-// {
-//   pmix_status_t rc;
-//   pmix_proc_t* procs;
-//   size_t nprocs, n;
-//   pid_t pid;
-//   char* nodelist;
-//   pmix_nspace_t nspace;
-
-//   pid = getpid();
-//   fprintf(stderr, "Client %lu: Running\n", (unsigned long) pid);
-
-//   if (PMIX_SUCCESS != (rc = PMIx_Init(&myproc, NULL, 0)))
-//   {
-//     fprintf(stderr, "Client ns %s rank %d: PMIx_Init failed: %s\n", myproc.nspace, myproc.rank,
-//         PMIx_Error_string(rc));
-//     exit(0);
-//   }
-//   fprintf(stderr, "Client ns %s rank %d pid %lu: Running\n", myproc.nspace, myproc.rank,
-//       (unsigned long) pid);
-
-//   rc = PMIx_Resolve_peers(NULL, myproc.nspace, &procs, &nprocs);
-//   fprintf(stderr, "ResPeers returned: %s\n", PMIx_Error_string(rc));
-//   if (PMIX_SUCCESS == rc)
-//   {
-//     for (n = 0; n < nprocs; n++) { fprintf(stderr, "\t%s:%u\n", procs[n].nspace, procs[n].rank); }
-//   }
-
-//   rc = PMIx_Resolve_nodes(myproc.nspace, &nodelist);
-//   fprintf(stderr, "ResNodes returned: %s\n", PMIx_Error_string(rc));
-//   if (PMIX_SUCCESS == rc) { fprintf(stderr, "\t%s\n", nodelist); }
-
-//   // now do global request
-//   PMIX_LOAD_NSPACE(nspace, NULL);
-//   rc = PMIx_Resolve_peers(NULL, nspace, &procs, &nprocs);
-//   fprintf(stderr, "ResPeers global returned: %s\n", PMIx_Error_string(rc));
-//   if (PMIX_SUCCESS == rc)
-//   {
-//     for (n = 0; n < nprocs; n++) { fprintf(stderr, "\t%s:%u\n", procs[n].nspace, procs[n].rank); }
-//   }
-
-//   rc = PMIx_Resolve_nodes(nspace, &nodelist);
-//   fprintf(stderr, "ResNodes global returned: %s\n", PMIx_Error_string(rc));
-//   if (PMIX_SUCCESS == rc) { fprintf(stderr, "\t%s\n", nodelist); }
-
-//   /* finalize us */
-//   rc = PMIx_Finalize(NULL, 0);
-//   fflush(stderr);
-//   return (rc);
-// }
-
-// // int main(int argc, char** argv)
-// // {
-// //   boot_PMI();
-// //   return 0;
-// // }

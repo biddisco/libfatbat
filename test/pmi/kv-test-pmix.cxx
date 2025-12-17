@@ -66,7 +66,7 @@ int main(int argc, char** argv)
   value.data.string = my_string;
 
   {
-    SPDLOG_SCOPE("Putting data", rank);
+    SPDLOG_SCOPE("{} {}", "Putting data", rank);
     CHECK_PMIX("Put", PMIx_Put(PMIX_GLOBAL, key, &value));
     CHECK_PMIX("Commit", PMIx_Commit());
     CHECK_PMIX("Fence", PMIx_Fence(NULL, 0, NULL, 0));
@@ -79,7 +79,7 @@ int main(int argc, char** argv)
       pmix_proc_t proc;
       pmix_value_t* val = NULL;
 
-      SPDLOG_SCOPE("Getting data", rank);
+      SPDLOG_SCOPE("{} {}", "Getting data", rank);
       PMIX_LOAD_PROCID(&proc, myproc.nspace, r);
       snprintf(key, sizeof(key), "LIBFABRIC_%u_STRING", r);
 

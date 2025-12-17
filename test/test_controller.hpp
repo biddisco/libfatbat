@@ -78,16 +78,16 @@ class test_controller : public libfatbat::controller_base<test_controller>
     std::string encoded_locality(base64_t((char const*) (here_.fabric_data().data())),
         base64_t((char const*) (here_.fabric_data().data()) + locality_defs::array_size));
     int encoded_length = encoded_locality.size();
-    SPDLOG_DEBUG("Encoded locality as {} with length {} ", encoded_locality, encoded_length);
+    SPDLOG_DEBUG("{:20} {} : length {}", "Encoded locality", encoded_locality, encoded_length);
 
     // Key name for PMI
     std::string pmi_key = "LIBFABRIC_" + std::to_string(rank);
     // insert our data in the KV store
-    SPDLOG_DEBUG("PMI2_KVS_Put on rank {}", rank);
+    SPDLOG_DEBUG("{:20} on rank {:04}", "PMI2_KVS_Put", rank);
     PMI2_KVS_Put(pmi_key.data(), encoded_locality.data());
 
     // Wait for all to do the same
-    SPDLOG_DEBUG("PMI2_KVS_Fence on rank {} ", rank);
+    SPDLOG_DEBUG("{:20} on rank {:04}", "PMI2_KVS_Fence", rank);
     PMI2_KVS_Fence();
 
     // read libfabric data for all nodes and insert into our address vector
@@ -106,20 +106,20 @@ class test_controller : public libfatbat::controller_base<test_controller>
           SPDLOG_ERROR("PMI value length mismatch, expected {} got {}", encoded_length, length);
         }
         // decode the string back to raw locality data
-        SPDLOG_DEBUG("Calling decode for {}  locality data on rank", i, rank);
+        SPDLOG_DEBUG("{:20} for rank {} on rank {:04}", "address decode", i, rank);
         std::copy(binary_t(encoded_data), binary_t(encoded_data + encoded_length),
             (new_locality.fabric_data_writable()));
       }
       else { new_locality = here_; }
 
       // insert locality into address vector
-      SPDLOG_DEBUG("Calling insert_address for {} on rank {} ", i, rank);
+      SPDLOG_DEBUG("{:20} for rank {} on rank {:04}", "insert_address", i, rank);
       new_locality = insert_address(av_, new_locality);
       if (i == 0) { root_ = new_locality; }
     }
 
     PMI2_Finalize();
-    SPDLOG_DEBUG("Completed PMI finalize on rank {}", rank);
+    SPDLOG_DEBUG("{:20} on rank {:04}", "PMI finalized", rank);
   }
 #endif
 
@@ -144,13 +144,13 @@ class test_controller : public libfatbat::controller_base<test_controller>
     std::string encoded_locality(base64_t((char const*) (here_.fabric_data().data())),
         base64_t((char const*) (here_.fabric_data().data()) + locality_defs::array_size));
     int encoded_length = encoded_locality.size();
-    SPDLOG_DEBUG("Rank {}, Encoded locality as {} length {} ({})", rank, encoded_locality,
-        encoded_length, here_.to_str());
+    SPDLOG_DEBUG("{:20} {} {} ({})", "Encoded locality as", encoded_locality, encoded_length,
+        here_.to_str());
 
     // Key name for PMI
     std::string pmi_key = "LIBFABRIC_" + std::to_string(rank);
     // insert our data in the KV store
-    SPDLOG_DEBUG("PMI2_KVS_Put on rank {}", rank);
+    SPDLOG_DEBUG("{:20} on rank {:04}", "PMI2_KVS_Put", rank);
 
     // share {key,value} across all ranks
     pmix_value_t value;
@@ -161,7 +161,7 @@ class test_controller : public libfatbat::controller_base<test_controller>
       SPDLOG_SCOPE("Putting data", rank);
       CHECK_PMIX("Put", PMIx_Put(PMIX_GLOBAL, pmi_key.c_str(), &value));
       CHECK_PMIX("Commit", PMIx_Commit());
-      SPDLOG_DEBUG("PMIx Fence on rank {} ", rank);
+      SPDLOG_DEBUG("{:20} on rank {:04}", "PMIx Fence", rank);
       CHECK_PMIX("Fence", PMIx_Fence(NULL, 0, NULL, 0));
     }
 
@@ -178,24 +178,25 @@ class test_controller : public libfatbat::controller_base<test_controller>
         PMIX_LOAD_PROCID(&proc, myproc.nspace, r);
         std::string pmi_key = "LIBFABRIC_" + std::to_string(r);
         CHECK_PMIX("Get (key)", PMIx_Get(&proc, pmi_key.c_str(), NULL, 0, &val));
-        SPDLOG_DEBUG("Rank {} got from rank {}: {}", myproc.rank, r, val->data.string);
         std::string encoded_address = val->data.string;
+        SPDLOG_DEBUG("{:20} rank {:04} received {} from rank {:04}", "PMI boot", myproc.rank,
+            encoded_address, r);
         PMIx_Value_free(val, 1);
         //
         int length = encoded_address.size();
         assert(length == encoded_length);
         // decode the string back to raw locality data
-        SPDLOG_DEBUG("Calling decode for {} locality data on rank", r, rank);
+        SPDLOG_DEBUG("{:20} rank {:04} decode from rank {:04}", "address decode", myproc.rank, r);
         std::copy(binary_t(encoded_address.begin()), binary_t(encoded_address.end()),
             (new_locality.fabric_data_writable()));
       }
       else { new_locality = here_; }
       // insert locality into address vector
-      SPDLOG_DEBUG("Calling insert_address for {} on rank {} ", r, rank);
+      SPDLOG_DEBUG("{:20} rank {:04} decode from rank {:04}", "insert_address", myproc.rank, r);
       new_locality = insert_address(av_, new_locality);
       if (r == 0) { root_ = new_locality; }
     }
-    SPDLOG_DEBUG("Completed boot_PMI on rank {}", rank);
+    SPDLOG_DEBUG("{:20} on rank {:04}", "Completed boot_PMI", rank);
   }
 #endif
 };

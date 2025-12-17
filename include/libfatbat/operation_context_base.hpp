@@ -16,8 +16,6 @@
 
 namespace libfatbat {
 
-  static NS_DEBUG::enable_print<true> ctx_bas("CTXBASE");
-
   // This struct holds the ready state of a future
   // we must also store the context used in libfabric, in case
   // a request is cancelled - fi_cancel(...) needs it
