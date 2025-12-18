@@ -134,7 +134,7 @@ endif()
 # currently header only interface library
 # ---------------------------------------------------------------------
 add_library(libfatbat INTERFACE)
-target_link_libraries(libfatbat INTERFACE Boost::thread)
+target_link_libraries(libfatbat INTERFACE Boost::headers)
 target_link_libraries(libfatbat INTERFACE HWMALLOC::hwmalloc)
 target_link_libraries(libfatbat INTERFACE libfabric::libfabric)
 
