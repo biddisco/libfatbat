@@ -32,8 +32,6 @@
 #include <rdma/fi_rma.h>
 #include <rdma/fi_tagged.h>
 //
-#include <hwmalloc/config.hpp>
-//
 #include "libfatbat_defines.hpp"
 //
 #include "libfatbat/fabric_error.hpp"
@@ -380,7 +378,6 @@ protected:
     endpoint_type endpoint_type_;
 
     locality here_;
-    locality root_;
 
     // used during queue creation setup and during polling
     mutex_type controller_mutex_;
@@ -1282,9 +1279,6 @@ public:
     inline void setHere(locality const& val) { here_ = val; }
 
     // --------------------------------------------------------------------
-    inline locality const& root() const { return root_; }
-
-    // --------------------------------------------------------------------
     inline struct fid_domain* get_domain() const { return fabric_domain_; }
 
     // --------------------------------------------------------------------
@@ -1319,6 +1313,7 @@ public:
       for (std::size_t i = 0; i < N; ++i)
       {
         int ret = fi_av_lookup(av_, fi_addr_t(i), addr.fabric_data_writable(), &addrlen);
+        if (ret) throw libfatbat::fabric_error(ret, "fi_av_lookup");
         addr.set_fi_address(fi_addr_t(i));
         if ((ret == 0) && (addrlen <= locality_defs::array_size))
         {
