@@ -1,3 +1,12 @@
+/*
+ * libfatbat
+ *
+ * Copyright (c) 2024-2025, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
 #pragma once
 
 #include "libfatbat/controller_base.hpp"
