@@ -9,6 +9,10 @@
  */
 #pragma once
 
+#include <iostream>
+#include <string>
+#include <tuple>
+//
 #ifdef FATBAT_PMI2_ENABLED
 # include <pmi2.h>
 #endif
@@ -16,11 +20,12 @@
 # include <pmix.h>
 #endif
 
+// libfatbat includes
 #include "libfatbat/controller_base.hpp"
 #include "libfatbat/locality.hpp"
 #include "libfatbat/logging.hpp"
 
-// base64 encode/decode
+// boost : base64 encode/decode (for exchanging addresses via PMI KVS)
 #include <boost/archive/iterators/base64_from_binary.hpp>
 #include <boost/archive/iterators/binary_from_base64.hpp>
 #include <boost/archive/iterators/transform_width.hpp>
@@ -46,16 +51,33 @@ struct pmi_helper
 #endif
 
   // --------------------------------------------------------------------
+  void debug_hook(bool attach_debugger)
+  {
+    if (rank == 0 && attach_debugger)
+    {
+      std::cout << "Please attach debugger and hit return" << std::endl;
+      char c;
+      std::cin >> c;
+    }
+    fence();
+  }
+
+  // --------------------------------------------------------------------
   // Implementation that is used when PMI2 is used on the system
   // --------------------------------------------------------------------
 #ifdef FATBAT_PMI2_ENABLED
   // --------------------------------------------------------------------
-  std::tuple<int, int> init_PMI()
+  void fence() { PMI2_KVS_Fence(); }
+
+  // --------------------------------------------------------------------
+  std::tuple<int, int> init_PMI(bool attach_debugger)
   {
     int spawned;
     int appnum;
     SPDLOG_SCOPE("{}", "PMI init");
     PMI2_Init(&spawned, &size, &rank, &appnum);
+
+    debug_hook(attach_debugger);
     return std::make_tuple(rank, size);
   }
 
@@ -110,7 +132,10 @@ struct pmi_helper
         std::copy(binary_t(encoded_data), binary_t(encoded_data + encoded_length),
             (new_locality.fabric_data_writable()));
       }
-      else { new_locality = here; }
+      else
+      {
+        new_locality = here;
+      }
 
       // insert locality into address vector
       SPDLOG_DEBUG("{:20} for rank {} on rank {:04}", "insert_address", i, rank);
@@ -136,7 +161,10 @@ struct pmi_helper
    }
 
   // --------------------------------------------------------------------
-  std::tuple<int, int> init_PMI()
+  void fence() { CHECK_PMIX("PMIx Fence", PMIx_Fence(NULL, 0, NULL, 0)); }
+
+  // --------------------------------------------------------------------
+  std::tuple<int, int> init_PMI(bool attach_debugger)
   {
     pmix_proc_t proc;    // other process info
     pmix_value_t* val = NULL;
@@ -152,12 +180,7 @@ struct pmi_helper
     rank = val->data.uint32;
     PMIX_VALUE_RELEASE(val);
 
-    if (rank == 0)
-    {
-      // std::cout << "Please attach debugger and hit return" << std::endl;
-      // char c;
-      // std::cin >> c;
-    }
+    debug_hook(attach_debugger);
 
     // get our node ID
     CHECK_PMIX("Get Node", PMIx_Get(&myproc, PMIX_NODEID, NULL, 0, &val));
@@ -242,7 +265,10 @@ struct pmi_helper
         std::copy(binary_t(encoded_address.begin()), binary_t(encoded_address.end()),
             (new_locality.fabric_data_writable()));
       }
-      else { new_locality = here; }
+      else
+      {
+        new_locality = here;
+      }
       // insert locality into address vector
       SPDLOG_DEBUG("{:20} rank {:04} decode from rank {:04}", "insert_address", myproc.rank, r);
       new_locality = controller->insert_address(new_locality);

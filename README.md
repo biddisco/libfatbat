@@ -111,6 +111,21 @@ ctest -V
 ```
 You should see log info and a successful set of examples
 
+**Warning**: If you see this in the cmake output (no `PC_PMI_CRAY_FOUND` and instead pmix version xxxxx)
+```
+-- PMI: PkgConfig PC_PMI_CRAY_FOUND is 
+-- PMI: PkgConfig PC_PMI_FOUND is 
+-- Checking for module 'pmix'
+--   Found pmix, version 5.0.3
+```
+then when you run a test you get 
+```
+PMIx_ PMIx Init failed: PMIX_ERR_UNREACH
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  PMIx failure
+```
+The you have picked up the default system pmi and probably forgot to `spack load cray-pmi` - **Fix**: load cray-pmi, wipe your cmake cache and rerun
+
 <a id="building-testing-alps-cray-mpich-cxi"></a>
 ## Building/Testing on alps (CSCS) : uenv for cray-mpich : cxi provider
 The procedure is the same as the above one for tcp, except we set provider to `cxi`

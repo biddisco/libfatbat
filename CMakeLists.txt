@@ -69,7 +69,8 @@ set_property(
            info
            warn
            error
-           critical)
+           critical
+)
 
 # implement some counters of internal actions
 option(FATBAT_WITH_PERFORMANCE_COUNTERS "Enable internal counters (default: OFF)" OFF)
@@ -82,7 +83,7 @@ find_package(Libfabric REQUIRED)
 # ---------------------------------------------------------------------
 # Boost we use crc and lockfree, but these are header only not in COMPONENTS
 # ---------------------------------------------------------------------
-find_package(Boost REQUIRED CONFIG COMPONENTS thread)
+find_package(Boost REQUIRED CONFIG COMPONENTS headers program_options)
 
 # ------------------------------------------------------------------------------
 # spdlog logging library
@@ -140,8 +141,9 @@ target_link_libraries(libfatbat INTERFACE libfabric::libfabric)
 
 if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
   target_compile_definitions(libfatbat INTERFACE FATBAT_LOGGING_ENABLED=1)
-  target_compile_definitions(libfatbat
-                             INTERFACE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_${FATBAT_LOG_LEVEL_UPPERCASE})
+  target_compile_definitions(
+    libfatbat INTERFACE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_${FATBAT_LOG_LEVEL_UPPERCASE}
+  )
   target_link_libraries(libfatbat INTERFACE spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32>)
   target_link_libraries(libfatbat INTERFACE fmt::fmt)
 endif()

@@ -24,8 +24,7 @@
 #include <libfatbat_defines.hpp>
 #include "libfatbat/logging.hpp"
 
-// Different providers use different address formats that we must accommodate in our locality
-// object.
+// Different providers use different address formats that we accommodate in our locality object.
 #ifdef HAVE_LIBFATBAT_GNI
 # define HAVE_LIBFATBAT_LOCALITY_SIZE 48
 #endif
@@ -58,6 +57,13 @@
 namespace libfatbat {
 
   struct locality;
+
+  // --------------------------------------------------------------------
+  // All the tcp stuff is obsolete as we use PMI or MPI for bootstrapping
+  // in all current applications, all this code really needs is a buffer
+  // and some get/set features.
+  // Old comments left in for reference.
+  // --------------------------------------------------------------------
 
   // --------------------------------------------------------------------
   // Locality, in this structure we store the information required by
