@@ -9,10 +9,12 @@
  */
 #pragma once
 
-#include "libfatbat/print.hpp"
-#include "libfatbat_defines.hpp"
-
+#include <exception>
+//
 #include <rdma/fi_eq.h>
+//
+#include "libfatbat/logging.hpp"
+#include "libfatbat_defines.hpp"
 
 namespace libfatbat {
 
@@ -31,7 +33,7 @@ public:
     operation_context_base()
       : context_reserved_space()
     {
-      [[maybe_unused]] auto scp = ctx_bas.scope(NS_DEBUG::hptr(this), __func__);
+      // SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
     }
 
     // error
@@ -59,11 +61,11 @@ public:
     int handle_tagged_send_completion_impl(void* /*user_data*/) { return 0; }
 
     // recv
-    int handle_recv_completion(std::uint64_t len)
+    int handle_recv_completion(uint64_t len)
     {
       return static_cast<Derived*>(this)->handle_recv_completion_impl(len);
     }
-    int handle_recv_completion_impl(std::uint64_t /*len*/) { return 0; }
+    int handle_recv_completion_impl(uint64_t /*len*/) { return 0; }
 
     // tagged recv
     int handle_tagged_recv_completion(void* user_data)
@@ -78,14 +80,14 @@ public:
     }
     void handle_rma_read_completion_impl() {}
 
-    // unknown sender = new connection
+    // unknown sender = new connection (not needed when using pmi/mpi/other connection setup)
     template <typename Controller>
-    int handle_new_connection(Controller* ctrl, std::uint64_t len)
+    int handle_new_connection(Controller* ctrl, uint64_t len)
     {
       return static_cast<Derived*>(this)->handle_new_connection_impl(ctrl, len);
     }
     template <typename Controller>
-    int handle_new_connection_impl(Controller*, std::uint64_t)
+    int handle_new_connection_impl(Controller*, uint64_t)
     {
       return 0;
     }

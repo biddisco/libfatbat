@@ -40,7 +40,7 @@
 #include "libfatbat/memory_region.hpp"
 #include "libfatbat/simple_counter.hpp"
 
-// #define DISABLE_FI_INJECT
+#define DISABLE_FI_INJECT
 // #define EXCESSIVE_POLLING_BACKOFF_MICRO_S 50
 
 // ------------------------------------------------------------------
@@ -261,7 +261,7 @@ public:
       , tq_(tq)
       , name_(name)
     {
-      SPDLOG_SCOPE("{}, {}, {}", (void*) (this), __func__, name_);
+      SPDLOG_SCOPE("{} {}, {}", (void*) (this), __func__, name_);
     }
 
     // to keep boost::lockfree happy, we need these copy operators
@@ -270,7 +270,7 @@ public:
 
     void cleanup()
     {
-      if (name_) { SPDLOG_SCOPE("{}, {}, {}", (void*) (this), __func__, name_); }
+      if (name_) { SPDLOG_SCOPE("{} {}, {}", (void*) (this), __func__, name_); }
       if (ep_)
       {
         fidclose(&ep_->fid, "endpoint");
@@ -408,12 +408,10 @@ public:
     bool get_mrbind() { return mrbind; }
 
 public:
-    libfatbat::simple_counter<int, false> sends_posted_;
-    libfatbat::simple_counter<int, false> recvs_posted_;
-    libfatbat::simple_counter<int, false> sends_readied_;
-    libfatbat::simple_counter<int, false> recvs_readied_;
-    libfatbat::simple_counter<int, false> sends_complete;
-    libfatbat::simple_counter<int, false> recvs_complete;
+    libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> sends_posted_;
+    libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> recvs_posted_;
+    libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> sends_complete_;
+    libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> recvs_complete_;
 
     void finvoke(char const* msg, char const* err, int ret)
     {
@@ -440,10 +438,8 @@ public:
       , msg_rendezvous_threshold_(0x4000)
       , sends_posted_(0)
       , recvs_posted_(0)
-      , sends_readied_(0)
-      , recvs_readied_(0)
-      , sends_complete(0)
-      , recvs_complete(0)
+      , sends_complete_(0)
+      , recvs_complete_(0)
     {
     }
 
@@ -451,7 +447,7 @@ public:
     // clean up all resources
     ~controller_base()
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
       unsigned int messages_handled_ = 0;
       unsigned int rma_reads_ = 0;
       unsigned int recv_deletes_ = 0;
@@ -506,7 +502,7 @@ public:
     endpoint_wrapper create_rx_endpoint(
         struct fid_domain* domain, struct fi_info* info, struct fid_av* av)
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
       auto ep_rx = new_endpoint_active(domain, info, false);
 
       // bind address vector
@@ -527,7 +523,7 @@ public:
     void
     initialize(std::string const& provider, bool rootnode, int size, size_t threads, Args&&... args)
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
 
       max_completions_per_poll_ = libfabric_completions_per_poll();
       SPDLOG_DEBUG("{:20} {}", "Poll completions", max_completions_per_poll_);
@@ -618,7 +614,7 @@ public:
         //
         for (unsigned int i = 0; i < threads_allocated; i++)
         {
-          SPDLOG_SCOPE("{}, {}, {}", (void*) (this), "scalable", i);
+          SPDLOG_SCOPE("{} {}, {}", (void*) (this), "scalable", i);
 
           // For threadlocal/scalable endpoints, tx/rx resources
           fid_ep* scalable_ep_tx;
@@ -785,7 +781,7 @@ public:
     // initialize the basic fabric/domain/name
     void open_fabric(std::string const& provider, int threads, bool rootnode)
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
 
       struct fi_info* fabric_hints_ = fi_allocinfo();
       if (!fabric_hints_) { throw libfatbat::fabric_error(-1, "Failed to allocate fabric hints"); }
@@ -995,7 +991,7 @@ public:
     template <typename T>
     int _set_check_domain_op_value(int op, T value, char const* info, bool set = true)
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
       static struct fi_gni_ops_domain* gni_domain_ops = nullptr;
       int ret = 0;
 
@@ -1047,7 +1043,7 @@ public:
       // and we do not create two endpoint with the same src address
       struct fi_info* hints = set_src_dst_addresses(info, tx);
 
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
       SPDLOG_DEBUG("{:20} {}", "Got info mode", (info->mode & FI_NOTIFY_FLAGS_ONLY));
 
       struct fid_ep* ep;
@@ -1068,7 +1064,7 @@ public:
       // don't allow multiple threads to call endpoint create at the same time
       scoped_lock lock(controller_mutex_);
 
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
 
       SPDLOG_DEBUG("{:20}", "fi_dupinfo");
       struct fi_info* hints = fi_dupinfo(info);
@@ -1085,15 +1081,9 @@ public:
       if (tx) { context_count = std::min(new_hints->domain_attr->tx_ctx_cnt, threads); }
       else { context_count = std::min(new_hints->domain_attr->rx_ctx_cnt, threads); }
 
-      // clang-format off
-        SPDLOG_TRACE("{:20} Tx {}, Threads {}, tx_ctx_cnt {}, rx_ctx_cnt {}, context_count {}",
-                  "scalable endpoint",
-                  "Tx", tx,
-                  "Threads", threads,
-                  "tx_ctx_cnt", new_hints->domain_attr->tx_ctx_cnt,
-                  "rx_ctx_cnt", new_hints->domain_attr->rx_ctx_cnt,
-                  "context_count", context_count);
-      // clang-format on
+      SPDLOG_TRACE("{:20} Tx {}, Threads {}, tx_ctx_cnt {}, rx_ctx_cnt {}, context_count {}",
+          "scalable endpoint", tx, threads, new_hints->domain_attr->tx_ctx_cnt,
+          new_hints->domain_attr->rx_ctx_cnt, context_count);
 
       threads_allocated = context_count;
       new_hints->ep_attr->tx_ctx_cnt = context_count;
@@ -1121,12 +1111,8 @@ public:
           bool ok = rx_endpoints_.pop(ep);
           if (!ok)
           {
-            // clang-format off
-                    SPDLOG_ERROR("Scalable Ep pop rx ep {}, tx cq {}, rx cq {}",
-                        (void*)(ep.get_ep()),
-                        (void*)(ep.get_tx_cq()),
-                        (void*)(ep.get_rx_cq()));
-            // clang-format on
+            SPDLOG_ERROR("Scalable Ep pop rx ep {}, tx cq {}, rx cq {}", (void*) (ep.get_ep()),
+                (void*) (ep.get_tx_cq()), (void*) (ep.get_rx_cq()));
             throw std::runtime_error("rx endpoint wrapper pop fail");
           }
           eps_->tl_srx_ = stack_endpoint(
@@ -1137,8 +1123,11 @@ public:
         }
         return eps_->tl_srx_.endpoint_;
       }
-      // otherwise just return the normal Rx endpoint
-      return eps_->ep_rx_;
+      {
+        // SPDLOG_SCOPE("{} {} {}", (void*) this, __func__, "single/shared rx endpoint");
+        // otherwise just return the normal Rx endpoint
+        return eps_->ep_rx_;
+      }
     }
 
     // --------------------------------------------------------------------
@@ -1148,7 +1137,7 @@ public:
       {
         if (eps_->tl_tx_.get_ep() == nullptr)
         {
-          SDPLOG_SCOPE((void*) (this), __func__, "threadlocal");
+          SPDLOG_SCOPE("{} {} {}", (void*) (this), __func__, "threadlocal");
 
           // create a completion queue for tx endpoint
           fabric_info_->tx_attr->op_flags |= (FI_INJECT_COMPLETE | FI_COMPLETION);
@@ -1196,14 +1185,17 @@ public:
         return eps_->tl_stx_.endpoint_;
       }
       else if (endpoint_type_ == endpoint_type::multiple) { return eps_->ep_tx_; }
-      // single : shared tx/rx endpoint
-      return eps_->ep_rx_;
+      {
+        // SPDLOG_SCOPE("{} {} {}", (void*) (this), __func__, "single/shared endpoint");
+        // single : shared tx/rx endpoint
+        return eps_->ep_rx_;
+      }
     }
 
     // --------------------------------------------------------------------
     void bind_address_vector_to_endpoint(struct fid_ep* endpoint, struct fid_av* av)
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
 
       SPDLOG_DEBUG("{:20} {}", "Binding AV to", (void*) (endpoint));
       int ret = fi_ep_bind(endpoint, &av->fid, 0);
@@ -1214,7 +1206,7 @@ public:
     void bind_queue_to_endpoint(
         struct fid_ep* endpoint, struct fid_cq*& cq, uint32_t cqtype, char const* type)
     {
-      SPDLOG_SCOPE("{}, {}, {}", (void*) (this), __func__, type);
+      SPDLOG_SCOPE("{} {}, {}", (void*) (this), __func__, type);
 
       SPDLOG_DEBUG("{:20} {} {}", "Binding CQ to", (void*) (endpoint), type);
       int ret = fi_ep_bind(endpoint, &cq->fid, cqtype);
@@ -1224,7 +1216,7 @@ public:
     // --------------------------------------------------------------------
     fid_cq* bind_tx_queue_to_rx_endpoint(struct fi_info* info, struct fid_ep* ep)
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
       info->tx_attr->op_flags |= (FI_INJECT_COMPLETE | FI_COMPLETION);
       fid_cq* tx_cq = create_completion_queue(fabric_domain_, info->tx_attr->size, "tx->rx");
       // shared send/recv endpoint - bind send cq to the recv endpoint
@@ -1235,9 +1227,8 @@ public:
     // --------------------------------------------------------------------
     void enable_endpoint(struct fid_ep* endpoint, char const* type)
     {
-      SPDLOG_SCOPE("{}, {}, {}", (void*) (this), __func__, type);
-
-      SPDLOG_DEBUG("{:20} {} {}", "Enabling endpoint", (void*) (endpoint), type);
+      SPDLOG_SCOPE("{} {}, {}", (void*) (this), __func__, type);
+      SPDLOG_DEBUG("{:20} {} {}", "enable_endpoint", (void*) (endpoint), type);
       int ret = fi_enable(endpoint);
       if (ret) throw libfatbat::fabric_error(ret, "fi_enable");
     }
@@ -1245,7 +1236,7 @@ public:
     // --------------------------------------------------------------------
     locality get_endpoint_address(struct fid* id)
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
 
       locality::locality_data local_addr;
       std::size_t addrlen = locality_defs::array_size;
@@ -1261,7 +1252,7 @@ public:
     // --------------------------------------------------------------------
     fid_pep* create_passive_endpoint(struct fid_fabric* fabric, struct fi_info* info)
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
 
       struct fid_pep* ep;
       int ret = fi_passive_ep(fabric, info, &ep, nullptr);
@@ -1416,7 +1407,7 @@ public:
     // --------------------------------------------------------------------
     struct fid_cq* create_completion_queue(struct fid_domain* domain, size_t size, char const* type)
     {
-      SPDLOG_SCOPE("{}, {}, {}", (void*) (this), __func__, type);
+      SPDLOG_SCOPE("{} {}, {}", (void*) (this), __func__, type);
 
       struct fid_cq* cq;
       fi_cq_attr cq_attr = {};
@@ -1425,17 +1416,17 @@ public:
       cq_attr.wait_cond = FI_CQ_COND_NONE;
       cq_attr.size = size;
       cq_attr.flags = 0 /*FI_COMPLETION*/;
-      SPDLOG_TRACE("{:20} {} {}", "CQ size", size, type);
       // open completion queue on fabric domain and set context to null
       int ret = fi_cq_open(domain, &cq_attr, &cq, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_cq_open");
+      SPDLOG_TRACE("{:20} {} size {} {}", "CQ", (void*) cq, size, type);
       return cq;
     }
 
     // --------------------------------------------------------------------
     fid_av* create_address_vector(struct fi_info* info, int N, int num_rx_contexts)
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
 
       fid_av* av;
       fi_av_attr av_attr = {fi_av_type(0), 0, 0, 0, nullptr, nullptr, 0};
@@ -1472,7 +1463,7 @@ public:
     // --------------------------------------------------------------------
     locality insert_address(fid_av* av, locality const& address)
     {
-      SPDLOG_SCOPE("{}, {}", (void*) (this), __func__);
+      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
 
       SPDLOG_TRACE("{:20} {} {}", "AV insert_address", address.to_str(av), (void*) av);
       fi_addr_t fi_addr = 0xffff'ffff;

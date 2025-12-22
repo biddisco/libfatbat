@@ -15,7 +15,7 @@
 #include <iostream>
 #include <type_traits>
 
-#ifdef LIBFATBAT_HAVE_PERFORMANCE_COUNTERS
+#ifdef FATBAT_HAVE_PERFORMANCE_COUNTERS
 # define PERFORMANCE_COUNTER_ENABLED true
 #else
 # define PERFORMANCE_COUNTER_ENABLED false
@@ -56,9 +56,19 @@ namespace libfatbat {
 
     inline T operator=(T const& x) { return value_ = x; }
 
-    inline T operator++() { return ++value_; }
+    inline T operator++()
+    {
+      ++value_;
+      return value_;
+    }
 
-    inline T operator++(int x) { return (value_ += x); }
+    inline T operator++(int)
+    {
+      value_++;
+      return value_;
+    }
+
+    // inline T operator++(int x) { return (value_ += x); }
 
     inline T operator+=(T const& rhs) { return (value_ += rhs); }
 
@@ -70,7 +80,7 @@ namespace libfatbat {
 
     friend std::ostream& operator<<(std::ostream& os, simple_counter<T, true> const& x)
     {
-      os << x.value_;
+      os << x.value_.load();
       return os;
     }
 

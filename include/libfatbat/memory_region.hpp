@@ -9,8 +9,10 @@
  */
 #pragma once
 
-#include <hwmalloc/config.hpp>
-#include <hwmalloc/register.hpp>
+#include <atomic>
+#include <iostream>
+#include <unistd.h>
+#include <utility>
 //
 #include <rdma/fabric.h>
 #include <rdma/fi_domain.h>
@@ -19,11 +21,10 @@
 #include "libfatbat/logging.hpp"
 #include "libfatbat_defines.hpp"
 
-#include <iostream>
-#include <utility>
-
 #ifdef LIBFATBAT_ENABLE_DEVICE
+# include <hwmalloc/config.hpp>
 # include <hwmalloc/device.hpp>
+# include <hwmalloc/register.hpp>
 #endif
 // ------------------------------------------------------------------
 
@@ -71,7 +72,7 @@ struct fi_mr_attr {
         size_t len, uint64_t access_flags, uint64_t offset, uint64_t request_key,
         struct fid_mr** mr)
     {
-      SPDLOG_SCOPE("{} {:-16x} {:03} {}", __func__, buf, len, device_id);
+      SPDLOG_SCOPE("{} {} {:#06x} {:05}", __func__, buf, len, device_id);
       //
       struct iovec addresses = {/*.iov_base = */ const_cast<void*>(buf), /*.iov_len = */ len};
       fi_mr_attr attr = {
@@ -231,18 +232,12 @@ struct fi_mr_attr {
     friend std::ostream& operator<<(std::ostream& os, memory_handle const& region)
     {
       (void) region;
-#if has_debug
-      using namespace NS_DEBUG;
-      os << "region "
-         << hptr(&region)
-         //<< " fi_region "  << hptr(region.region_)
-         << " address " << hptr(region.address_) << " size "
-         << hex<6>(region.size_)
-         //<< " used_space " << hex<6>(region.used_space_/*size_*/)
-         << " loc key "
-         << hptr(region.region_ ? region_provider::get_local_key(region.region_) : nullptr)
-         << " rem key "
-         << hptr(region.region_ ? region_provider::get_remote_key(region.region_) : 0);
+#ifdef FATBAT_LOGGING_ENABLED
+      os << fmt::format(
+          "region {:p} fi_region {:p} address {:p} size {:#06x} loc key {} rem key {}",
+          (void*) (&region), (void*) (region.region_), (void*) (region.address_), region.size_,
+          region.region_ ? region_provider::get_local_key(region.region_) : nullptr,
+          region.region_ ? region_provider::get_remote_key(region.region_) : 0);
 #endif
       return os;
     }
@@ -266,10 +261,12 @@ protected:
 
 }    // namespace libfatbat
 
+#ifdef FATBAT_LOGGING_ENABLED
 template <>
 struct fmt::formatter<libfatbat::memory_handle> : fmt::ostream_formatter
 {
 };
+#endif
 
 namespace libfatbat {
   // --------------------------------------------------------------------
@@ -286,7 +283,7 @@ namespace libfatbat {
         SPDLOG_TRACE("fi_close mr failed");
         return -1;
       }
-      else { SPDLOG_TRACE("de-Registered region {}", *this); }
+      else { SPDLOG_TRACE("{:20} {}", "de-Registered region", *this); }
       region_ = nullptr;
     }
     return 0;
@@ -346,11 +343,11 @@ namespace libfatbat {
       region_ = nullptr;
       //
       base_addr_ = memory_handle::address_;
-      SPDLOG_TRACE("memory_segment {} {}", (void*) this, device_id);
+      SPDLOG_TRACE("{:20} {} {}", "memory_segment", (void*) this, device_id);
 
       int ret = region_provider::fi_register_memory(
           pd, device_id, buffer, length, region_provider::access_flags(), 0, key++, &(region_));
-      if (!ret) { SPDLOG_TRACE("Registered region {} device {} ", device_id, (void*) this); }
+      if (!ret) { SPDLOG_TRACE("{:20} {} {}", "Registered region", device_id, (void*) this); }
 
       if (bind_mr)
       {
@@ -382,10 +379,9 @@ namespace libfatbat {
     friend std::ostream& operator<<(std::ostream& os, memory_segment const& region)
     {
       (void) region;
-#if has_debug
-      os << *static_cast<memory_handle const*>(&region)    //
-         << " base address "                               //
-         << NS_DEBUG::hptr(region.base_addr_);             //
+#ifdef FATBAT_LOGGING_ENABLED
+      os << *static_cast<memory_handle const*>(&region)
+         << fmt::format("base_addr {}", (void*) (region.base_addr_));
 #endif
       return os;
     }

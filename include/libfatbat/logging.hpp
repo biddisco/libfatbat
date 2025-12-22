@@ -32,21 +32,26 @@ struct scoped_var
     : format_(format)
     , message_(args...)    //
   {
-    std::string message_str_ =
-        fmt::vformat(format_, fmt::make_format_args(std::get<Args const&>(message_)...));
+    std::string message_str_ = std::apply(
+        [&](auto const&... args) { return fmt::vformat(format_, fmt::make_format_args(args...)); },
+        message_);
     SPDLOG_INFO("{:20} {}", ">> enter <<", message_str_);
-    SPDLOG_INFO("{:20} {}", ">> enter <<", "message_str_");
+    // SPDLOG_INFO("{:20} {}", ">> enter <<", "message_str_");
     // SPDLOG_INFO("{:20} {}", ">> enter <<",
     //   fmt::vformat(format_, fmt::make_format_args(std::apply([](auto const&... args) { return std::make_tuple(args...); }, message_))));
   }
 
   ~scoped_var()
   {
-    // SPDLOG_INFO("{:20} {}", "<< leave >>",
-    // fmt::vformat(format_, fmt::make_format_args(std::apply([](auto const&... args) { return std::make_tuple(args...); }, message_))));
+    SPDLOG_TRACE("{:20} {}", "<< leave >>",
+        std::apply(
+            [&](auto const&... args) {
+              return fmt::vformat(format_, fmt::make_format_args(args...));
+            },
+            message_));
   }
 };
-# define SPDLOG_SCOPE(format, ...) scoped_var scope(format, __VA_ARGS__);
+# define SPDLOG_SCOPE(format, ...) scoped_var local_scoped_var(format, __VA_ARGS__);
 
 #else
 

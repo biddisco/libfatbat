@@ -7,9 +7,9 @@
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+#include <boost/program_options.hpp>
 #include "../test_controller.hpp"
 #include "libfatbat/logging.hpp"
-#include <boost/program_options.hpp>
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
@@ -25,7 +25,7 @@ int main(int argc, char** argv)
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
   po::notify(vm);
-  
+
   bool attach_debugger = vm.count("debug") > 0;
 
   std::size_t rank, size, nthreads = 2;    // anything >1 triggers thread safety code paths

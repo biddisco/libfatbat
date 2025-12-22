@@ -33,9 +33,9 @@ int main(int argc, char** argv)
   pmix_proc_t myproc;    // local process info
   pmix_proc_t proc;      // other process info
   pmix_value_t* val = NULL;
-  int rank = -1;
-  int node = -1;
-  int size = -1;
+  uint32_t rank = -1;
+  uint32_t node = -1;
+  uint32_t size = -1;
 
 #if defined(SPDLOG_ACTIVE_LEVEL) && (SPDLOG_ACTIVE_LEVEL != SPDLOG_LEVEL_OFF)
   spdlog::set_pattern("[%^%-8l%$]%t| %v");

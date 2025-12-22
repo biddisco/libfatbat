@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <tuple>
@@ -43,9 +44,9 @@ typedef transform_width<binary_from_base64<std::string::const_iterator>, 8, 6> b
 // --------------------------------------------------------------------
 struct pmi_helper
 {
-  int rank = -1;
-  int node = -1;
-  int size = -1;
+  uint32_t rank = -1;
+  uint32_t node = -1;
+  uint32_t size = -1;
 #ifdef FATBAT_PMIx_ENABLED
   pmix_proc_t myproc;
 #endif
@@ -70,7 +71,7 @@ struct pmi_helper
   void fence() { PMI2_KVS_Fence(); }
 
   // --------------------------------------------------------------------
-  std::tuple<int, int> init_PMI(bool attach_debugger)
+  std::tuple<uint32_t, uint32_t> init_PMI(bool attach_debugger)
   {
     int spawned;
     int appnum;
@@ -132,10 +133,7 @@ struct pmi_helper
         std::copy(binary_t(encoded_data), binary_t(encoded_data + encoded_length),
             (new_locality.fabric_data_writable()));
       }
-      else
-      {
-        new_locality = here;
-      }
+      else { new_locality = here; }
 
       // insert locality into address vector
       SPDLOG_DEBUG("{:20} for rank {} on rank {:04}", "insert_address", i, rank);
@@ -164,7 +162,7 @@ struct pmi_helper
   void fence() { CHECK_PMIX("PMIx Fence", PMIx_Fence(NULL, 0, NULL, 0)); }
 
   // --------------------------------------------------------------------
-  std::tuple<int, int> init_PMI(bool attach_debugger)
+  std::tuple<uint32_t, uint32_t> init_PMI(bool attach_debugger)
   {
     pmix_proc_t proc;    // other process info
     pmix_value_t* val = NULL;
@@ -192,7 +190,7 @@ struct pmi_helper
     size = val->data.uint32;
     PMIX_VALUE_RELEASE(val);
 
-    SPDLOG_DEBUG("{:30}: Rank {}/{} : on Node {}", PMIx_Proc_string(&myproc), rank, size, node);
+    SPDLOG_DEBUG("{:20}: Rank {}/{} : on Node {}", PMIx_Proc_string(&myproc), rank, size, node);
     return std::make_tuple(rank, size);
   }
 
@@ -213,8 +211,8 @@ struct pmi_helper
     // encode it as a string to put into the PMI KV store
     auto here = controller->here();
     std::string encoded_address = here.to_str();
-    SPDLOG_DEBUG(
-        "{:20} {} : length {}", "Locality string", encoded_address, encoded_address.size());
+    SPDLOG_DEBUG("{:20} {} : rank {:04}, length {}", "Locality string", encoded_address, rank,
+        encoded_address.size());
 
     std::string encoded_locality(base64_t((char const*) (here.fabric_data().data())),
         base64_t((char const*) (here.fabric_data().data()) + locality_defs::array_size));
@@ -225,7 +223,7 @@ struct pmi_helper
     // Key name for PMI
     std::string pmi_key = "LIBFABRIC_" + std::to_string(rank);
     // insert our data in the KV store
-    SPDLOG_DEBUG("{:20} on rank {:04}", "PMI2_KVS_Put", rank);
+    SPDLOG_DEBUG("{:20} on rank {:04} {} {}", "PMI2_KVS_Put", rank, pmi_key, encoded_locality);
 
     // share {key,value} across all ranks
     pmix_value_t value;
@@ -233,7 +231,7 @@ struct pmi_helper
     value.data.string = (char*) encoded_locality.c_str();
 
     {
-      SPDLOG_SCOPE("Putting data", rank);
+      SPDLOG_SCOPE("{} {}", "Putting data", rank);
       CHECK_PMIX("Put", PMIx_Put(PMIX_GLOBAL, pmi_key.c_str(), &value));
       CHECK_PMIX("Commit", PMIx_Commit());
       SPDLOG_DEBUG("{:20} on rank {:04}", "PMIx Fence", rank);
@@ -246,7 +244,7 @@ struct pmi_helper
       locality new_locality;
       if (r != rank)
       {
-        SPDLOG_SCOPE("Getting data from/for {}/{}", rank, r);
+        SPDLOG_SCOPE("{} {}", "Getting data from/for", rank, r);
         pmix_proc_t proc;
         pmix_value_t* val = NULL;
         //
@@ -265,10 +263,7 @@ struct pmi_helper
         std::copy(binary_t(encoded_address.begin()), binary_t(encoded_address.end()),
             (new_locality.fabric_data_writable()));
       }
-      else
-      {
-        new_locality = here;
-      }
+      else { new_locality = here; }
       // insert locality into address vector
       SPDLOG_DEBUG("{:20} rank {:04} decode from rank {:04}", "insert_address", myproc.rank, r);
       new_locality = controller->insert_address(new_locality);
