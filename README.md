@@ -99,8 +99,9 @@ spack load cray-pmi
 cmake -DCMAKE_CUDA_ARCHITECTURES=90 \
     -DCMAKE_BUILD_TYPE=Debug        \
     -DFATBAT_PROVIDER=tcp           \
-    -DFATBAT_LOG_LEVEL=trace        \
+    -DFATBAT_LOG_LEVEL=debug        \
     -DHWMALLOC_ENABLE_DEVICE=ON     \
+    -DMPIEXEC_EXECUTABLE=srun       \
     ~/src/libfatbat/
 ```
 and then after building try running ctest to see if examples generate output (You will need a compute node or two)
@@ -133,15 +134,16 @@ The procedure is the same as the above one for tcp, except we set provider to `c
 cmake -DCMAKE_CUDA_ARCHITECTURES=90 \
     -DCMAKE_BUILD_TYPE=Debug        \
     -DFATBAT_PROVIDER=cxi           \
-    -DFATBAT_LOG_LEVEL=trace        \
+    -DFATBAT_LOG_LEVEL=debug        \
     -DHWMALLOC_ENABLE_DEVICE=ON     \
+    -DMPIEXEC_EXECUTABLE=srun       \
     ~/src/libfatbat/
 ```
 Test should show cxi prominently in the log output
 
 <a id="building-testing-alps-openmpi-cxi"></a>
 ## Building/Testing on alps (CSCS) : uenv for OpenMPI : cxi provider
-Load an OpenMPI based uenv as follows and then run cmake, using the `cxi` provider. There is no need to load any pmi libraery as we have asked for it in the OpenMPI uenv as a top level library, so it is part of the default view. 
+Load an OpenMPI based uenv as follows and then run cmake, using the `cxi` provider. There is no need to load any pmi libraery as we have asked for it in the OpenMPI uenv as a top level library, so it is part of the default view. The mpiexec provided by the uenv can be used instead of srun
 ```
 uenv start --view=default \
   /capstor/store/cscs/cscs/public/uenvs/opal-x-gh200-ompi-gcc-2025-12-15.squashfs

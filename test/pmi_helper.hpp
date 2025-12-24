@@ -76,7 +76,7 @@ struct pmi_helper
     int spawned;
     int appnum;
     SPDLOG_SCOPE("{}", "PMI init");
-    PMI2_Init(&spawned, &size, &rank, &appnum);
+    PMI2_Init(&spawned, (int*) &size, (int*) &rank, &appnum);
 
     debug_hook(attach_debugger);
     return std::make_tuple(rank, size);
