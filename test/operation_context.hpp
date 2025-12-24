@@ -11,20 +11,32 @@
 
 //
 #include "libfatbat/operation_context_base.hpp"
-//
-// namespace libfatbat {
 
-// This struct holds the ready state of a future
-// we must also store the context used in libfabric, in case
-// a request is cancelled - fi_cancel(...) needs it
+using rank_type = std::uint64_t;
+using tag_type = std::uint64_t;
+using request_callback_type = std::move_only_function<void(rank_type, tag_type)>;
+
+// --------------------------------------------------------------------
+// we are not supporting cacellation for now
+// --------------------------------------------------------------------
 struct operation_context : public libfatbat::operation_context_base<operation_context>
 {
-  //   std::variant<oomph::detail::request_state*, oomph::detail::shared_request_state*> m_req;
+  // when the operation completes, this callback is invoked to trigger user defined actions
+  request_callback_type m_callback;
 
+  // --------------------------------------------------------------------
   operation_context()
     : libfatbat::operation_context_base<operation_context>()
+    , m_callback(nullptr)
   {
     // SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+  }
+
+  // --------------------------------------------------------------------
+  void invoke_cb()
+  {
+    SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    if (m_callback) m_callback(0, 0);
   }
 
   // --------------------------------------------------------------------
@@ -51,5 +63,3 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
     return 0;
   }
 };
-
-// }    // namespace oomph::libfabric

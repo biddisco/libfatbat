@@ -21,21 +21,16 @@
 #include "operation_context.hpp"
 #include "test_controller.hpp"
 
-// paths relative to backend
-
-using rank_type = std::uint64_t;
-using tag_type = std::uint64_t;
-using request_callback_type = std::move_only_function<void(rank_type, tag_type)>;
-
 // --------------------------------------------------------------------
 // A convenience memory context to manage memory regions
+// we use this to connect hwmalloc with our code
 // --------------------------------------------------------------------
 struct memory_context
 {
+  using heap_type = hwmalloc::heap<memory_context>;
   using region_type = libfatbat::memory_segment;
   using domain_type = region_type::provider_domain;
-  using device_region_type = libfatbat::memory_segment;
-  using heap_type = hwmalloc::heap<memory_context>;
+  // using device_region_type = libfatbat::memory_segment;
 
   test_controller* m_controller;
   domain_type* m_domain;
@@ -59,10 +54,8 @@ struct memory_context
   }
 };
 
-// auto register_memory(memory_context&, void* ptr, std::size_t) { return memory_context::region{ptr}; }
-
 // --------------------------------------------------------------------
-// needed by hwmalloc heap creation code to register large memory chunks
+// needed by hwmalloc heap creation code to register memory segments
 // --------------------------------------------------------------------
 inline memory_context::region_type register_memory(
     memory_context& c, void* const ptr, std::size_t size)
@@ -71,283 +64,240 @@ inline memory_context::region_type register_memory(
 }
 
 // --------------------------------------------------------------------
-//
-// --------------------------------------------------------------------
-struct communicator;
-
-// --------------------------------------------------------------------
-// A callback wrapper, we use to store send/recv completions triggered
-// when our context operation state is run
-// --------------------------------------------------------------------
-struct request_state : public operation_context
-{
-  request_callback_type m_callback;
-  //
-  request_state()
-    : m_callback(nullptr)
-    , operation_context()
-  {
-  }
-
-  void invoke_cb()
-  {
-    SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
-    if (m_callback) m_callback(0, 0);
-  }
-
-  //   request_state(std::move_only_function<void()> cb)
-  //     : m_callback(std::move(cb))
-  //     , operation_context()
-  //   {
-  //   }
-
-  //   request_state &operator =(request_state &&other) noexcept
-  //   {
-  //     m_callback = std::move(other.m_callback);
-  //     return *this;
-  //   }
-};
-
-// --------------------------------------------------------------------
 // a lockfree queue to hold completions
 // --------------------------------------------------------------------
 constexpr uint64_t max_completions_array_limit_ = 256;
 
-namespace libfatbat {
+struct communicator
+{
+  //
+  using segment_type = libfatbat::memory_segment;
+  using region_type = segment_type::handle_type;
 
-  struct communicator
+  using callback_queue = boost::lockfree::queue<operation_context*,
+      boost::lockfree::fixed_sized<false>, boost::lockfree::allocator<std::allocator<void>>>;
+
+  public:
+  test_controller* m_controller;
+  libfatbat::endpoint_wrapper m_tx_endpoint;
+  libfatbat::endpoint_wrapper m_rx_endpoint;
+  //
+  callback_queue queue_cache;
+  callback_queue m_send_cb_queue;
+  callback_queue m_recv_cb_queue;
+  //
+  rank_type m_rank = -1;
+  rank_type m_size = -1;
+
+  // --------------------------------------------------------------------
+  communicator(test_controller* controller, rank_type rank, rank_type size)
+    : m_controller(controller)
+    , queue_cache(2 * max_completions_array_limit_)
+    , m_send_cb_queue(max_completions_array_limit_)
+    , m_recv_cb_queue(max_completions_array_limit_)
+    , m_rank(rank)
+    , m_size(size)
   {
-    //
-    using segment_type = libfatbat::memory_segment;
-    using region_type = segment_type::handle_type;
-
-    using callback_queue = boost::lockfree::queue<request_state*,
-        boost::lockfree::fixed_sized<false>, boost::lockfree::allocator<std::allocator<void>>>;
-
-public:
-    test_controller* m_controller;
-    libfatbat::endpoint_wrapper m_tx_endpoint;
-    libfatbat::endpoint_wrapper m_rx_endpoint;
-    //
-    callback_queue queue_cache;
-    callback_queue m_send_cb_queue;
-    callback_queue m_recv_cb_queue;
-    //
-    rank_type m_rank = -1;
-    rank_type m_size = -1;
-
-    // --------------------------------------------------------------------
-    communicator(test_controller* controller, rank_type rank, rank_type size)
-      : m_controller(controller)
-      , queue_cache(2 * max_completions_array_limit_)
-      , m_send_cb_queue(max_completions_array_limit_)
-      , m_recv_cb_queue(max_completions_array_limit_)
-      , m_rank(rank)
-      , m_size(size)
+    m_tx_endpoint = m_controller->get_tx_endpoint();
+    m_rx_endpoint = m_controller->get_rx_endpoint();
+    // fill cache with empty request objects taken from the heap so that we can avoid allocations at runtime
+    for (int i = 0; i < 2 * max_completions_array_limit_; ++i)
     {
-      m_tx_endpoint = m_controller->get_tx_endpoint();
-      m_rx_endpoint = m_controller->get_rx_endpoint();
-      // fill cache with empty request objects taken from the heap so that we can avoid allocations at runtime
-      for (int i = 0; i < 2 * max_completions_array_limit_; ++i)
+      queue_cache.push(new operation_context());
+    }
+  }
+
+  // --------------------------------------------------------------------
+  ~communicator() { clear_callback_queues(); }
+
+  inline operation_context* make_operation_context(request_callback_type&& cb)
+  {
+    operation_context* request;
+    while (!queue_cache.pop(request))
+    {
+      SPDLOG_ERROR("{:20} {}", "make_operation_context", "unable to get request from cache");
+    }
+    request->m_callback = std::move(cb);
+    return request;
+  }
+
+  // --------------------------------------------------------------------
+  rank_type rank() const { return m_rank; }
+  rank_type size() const { return m_size; }
+
+  // --------------------------------------------------------------------
+  // generate a tag with 0xRRRRRRRRtttttttt rank, tag.
+  // original tag can be 32bits, then we add 32bits of rank info.
+  // Note - this tag setting should not be used without unique context info
+  inline std::uint64_t make_tag64(std::uint32_t tag, /*std::uint32_t rank, */ std::uintptr_t ctxt)
+  {
+    return (
+        ((ctxt & 0x0000'0000'00FF'FFFF) << 24) | ((std::uint64_t(tag) & 0x0000'0000'00FF'FFFF)));
+  }
+
+  // --------------------------------------------------------------------
+  template <typename Func, typename... Args>
+  inline void execute_fi_function(Func F, char const* msg, Args&&... args)
+  {
+    bool ok = false;
+    while (!ok)
+    {
+      ssize_t ret = F(std::forward<Args>(args)...);
+      if (ret == 0) { return; }
+      else if (ret == -FI_EAGAIN)
       {
-        queue_cache.push(new request_state());
+        SPDLOG_TRACE("{:20} {}", "Reposting FI_EAGAIN", msg);    // , std::forward<Args>(args)...);
+        // no point stressing the system
+        m_controller->poll_for_work_completions(this);
       }
-    }
-
-    // --------------------------------------------------------------------
-    ~communicator() { clear_callback_queues(); }
-
-    inline request_state* make_request_state(request_callback_type&& cb)
-    {
-      request_state* request;
-      while (!queue_cache.pop(request))
+      else if (ret == -FI_ENOENT)
       {
-        SPDLOG_ERROR("{:20} {}", "make_request_state", "unable to get request from cache");
+        // if a node has failed, we can in principle recover
+        // @TODO : put something better here to recover from error
+        SPDLOG_ERROR("{:20}", "No destination endpoint, terminating.");
+        std::terminate();
       }
-      request->m_callback = std::move(cb);
-      return request;
+      else if (ret) { throw libfatbat::fabric_error(int(ret), msg); }
     }
+  }
 
-    // --------------------------------------------------------------------
-    rank_type rank() const { return m_rank; }
-    rank_type size() const { return m_size; }
+  // --------------------------------------------------------------------
+  // this takes a pinned memory region and sends it
+  void send_tagged_region(region_type const& send_region, std::size_t size, fi_addr_t dst_addr_,
+      uint64_t tag_, operation_context* ctxt)
+  {
+    SPDLOG_DEBUG("{:20} {:02} {} tag {} context {:p} tx endpoint {:p}", "send_tagged_region",
+        dst_addr_, send_region, tag_, (void*) (ctxt), (void*) (m_tx_endpoint.get_ep()));
+    execute_fi_function(fi_tsend, "fi_tsend", m_tx_endpoint.get_ep(), send_region.get_address(),
+        size, send_region.get_local_key(), dst_addr_, tag_, ctxt);
+  }
 
-    // --------------------------------------------------------------------
-    // generate a tag with 0xRRRRRRRRtttttttt rank, tag.
-    // original tag can be 32bits, then we add 32bits of rank info.
-    // Note - this tag setting should not be used without unique context info
-    inline std::uint64_t make_tag64(std::uint32_t tag, /*std::uint32_t rank, */ std::uintptr_t ctxt)
-    {
-      return (
-          ((ctxt & 0x0000'0000'00FF'FFFF) << 24) | ((std::uint64_t(tag) & 0x0000'0000'00FF'FFFF)));
-    }
+  // --------------------------------------------------------------------
+  // this takes a pinned memory region and sends it using inject instead of send
+  void inject_tagged_region(
+      region_type const& send_region, std::size_t size, fi_addr_t dst_addr_, uint64_t tag_)
+  {
+    SPDLOG_DEBUG("{:20} {} {} tag {} tx endpoint {:p}", "inject tagged", dst_addr_, send_region,
+        tag_, (void*) (m_tx_endpoint.get_ep()));
+    execute_fi_function(fi_tinject, "fi_tinject", m_tx_endpoint.get_ep(), send_region.get_address(),
+        size, dst_addr_, tag_);
+  }
 
-    // --------------------------------------------------------------------
-    template <typename Func, typename... Args>
-    inline void execute_fi_function(Func F, char const* msg, Args&&... args)
-    {
-      bool ok = false;
-      while (!ok)
-      {
-        ssize_t ret = F(std::forward<Args>(args)...);
-        if (ret == 0) { return; }
-        else if (ret == -FI_EAGAIN)
-        {
-          SPDLOG_TRACE(
-              "{:20} {}", "Reposting FI_EAGAIN", msg);    // , std::forward<Args>(args)...);
-          // no point stressing the system
-          m_controller->poll_for_work_completions(this);
-        }
-        else if (ret == -FI_ENOENT)
-        {
-          // if a node has failed, we can in principle recover
-          // @TODO : put something better here to recover from error
-          SPDLOG_ERROR("{:20}", "No destination endpoint, terminating.");
-          std::terminate();
-        }
-        else if (ret) { throw libfatbat::fabric_error(int(ret), msg); }
-      }
-    }
+  // --------------------------------------------------------------------
+  // the receiver posts a single receive buffer to the queue, attaching
+  // itself as the context, so that when a message is received
+  // the owning receiver is called to handle processing of the buffer
+  void recv_tagged_region(region_type const& recv_region, std::size_t size, fi_addr_t src_addr_,
+      uint64_t tag_, operation_context* ctxt)
+  {
+    SPDLOG_DEBUG("{:20} {:02} {} tag {} context {:p} rx endpoint {:p}", "recv_tagged_region",
+        src_addr_, recv_region, tag_, (void*) (ctxt), (void*) (m_rx_endpoint.get_ep()));
+    constexpr uint64_t ignore = 0;
+    execute_fi_function(fi_trecv, "fi_trecv", m_rx_endpoint.get_ep(), recv_region.get_address(),
+        size, recv_region.get_local_key(), src_addr_, tag_, ignore, ctxt);
+    // if (l.owns_lock()) l.unlock();
+  }
 
-    // --------------------------------------------------------------------
-    // this takes a pinned memory region and sends it
-    void send_tagged_region(region_type const& send_region, std::size_t size, fi_addr_t dst_addr_,
-        uint64_t tag_, operation_context* ctxt)
-    {
-      SPDLOG_DEBUG("{:20} {:02} {} tag {} context {:p} tx endpoint {:p}", "send_tagged_region",
-          dst_addr_, send_region, tag_, (void*) (ctxt), (void*) (m_tx_endpoint.get_ep()));
-      execute_fi_function(fi_tsend, "fi_tsend", m_tx_endpoint.get_ep(), send_region.get_address(),
-          size, send_region.get_local_key(), dst_addr_, tag_, ctxt);
-    }
-
-    // --------------------------------------------------------------------
-    // this takes a pinned memory region and sends it using inject instead of send
-    void inject_tagged_region(
-        region_type const& send_region, std::size_t size, fi_addr_t dst_addr_, uint64_t tag_)
-    {
-      SPDLOG_DEBUG("{:20} {} {} tag {} tx endpoint {:p}", "inject tagged", dst_addr_, send_region,
-          tag_, (void*) (m_tx_endpoint.get_ep()));
-      execute_fi_function(fi_tinject, "fi_tinject", m_tx_endpoint.get_ep(),
-          send_region.get_address(), size, dst_addr_, tag_);
-    }
-
-    // --------------------------------------------------------------------
-    // the receiver posts a single receive buffer to the queue, attaching
-    // itself as the context, so that when a message is received
-    // the owning receiver is called to handle processing of the buffer
-    void recv_tagged_region(region_type const& recv_region, std::size_t size, fi_addr_t src_addr_,
-        uint64_t tag_, operation_context* ctxt)
-    {
-      SPDLOG_DEBUG("{:20} {:02} {} tag {} context {:p} rx endpoint {:p}", "recv_tagged_region",
-          src_addr_, recv_region, tag_, (void*) (ctxt), (void*) (m_rx_endpoint.get_ep()));
-      constexpr uint64_t ignore = 0;
-      execute_fi_function(fi_trecv, "fi_trecv", m_rx_endpoint.get_ep(), recv_region.get_address(),
-          size, recv_region.get_local_key(), src_addr_, tag_, ignore, ctxt);
-      // if (l.owns_lock()) l.unlock();
-    }
-
-    // --------------------------------------------------------------------
-    request_state* send(memory_context::heap_type::pointer const& ptr, std::size_t size,
-        rank_type dst, tag_type tag, request_callback_type&& cb, std::size_t* scheduled)
-    {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
-      std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
+  // --------------------------------------------------------------------
+  operation_context* send(memory_context::heap_type::pointer const& ptr, std::size_t size,
+      rank_type dst, tag_type tag, request_callback_type&& cb, std::size_t* scheduled)
+  {
+    SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
 
 #if libfatbat_ENABLE_DEVICE
-      auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
+    auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
 #else
-      auto const& reg = ptr.handle();
+    auto const& reg = ptr.handle();
 #endif
 
-      m_controller->sends_posted_++;
+    m_controller->sends_posted_++;
 
-      // use optimized inject if msg is very small
-      if (size <= m_controller->get_tx_inject_size())
-      {
-        // @todo check reached_recursion_depth() : auto inc = recursion();
-        // inject will return immediately, so we do not pass a context, instead return a "ready state"
-        inject_tagged_region(reg, size, fi_addr_t(dst), stag);
-        // invoke the callback right away
-        m_controller->sends_complete_++;
-        if (cb) cb(dst, tag);
-        return nullptr;
-      }
-
-      // construct request which is also an operation context
-      auto request = make_request_state(std::move(cb));
-
-      SPDLOG_DEBUG("{:20} thisrank {} src/dst {} reg:{} tag {} stag {:#08x} addr {} size {} reg "
-                   "size {:06} op_ctx {:p} req {:p}",
-          "send", rank(), dst, reg, tag, stag, (void*) (reg.get_address()), size, reg.get_size(),
-          (void*) request, (void*) request);
-#if libfatbat_ENABLE_DEVICE
-      if (!ptr.on_device())
-      {
-        LF_DEB(com_deb<9>,
-            debug(str<>("send region CRC32"), mem_crc32(reg.get_address(), size, "CRC32")));
-      }
-#endif
-
-      send_tagged_region(reg, size, fi_addr_t(dst), stag, request);
-      return request;
+    // use optimized inject if msg is very small
+    if (size <= m_controller->get_tx_inject_size())
+    {
+      // @todo check reached_recursion_depth() : auto inc = recursion();
+      // inject will return immediately, so we do not pass a context, instead return a "ready state"
+      inject_tagged_region(reg, size, fi_addr_t(dst), stag);
+      // invoke the callback right away
+      m_controller->sends_complete_++;
+      if (cb) cb(dst, tag);
+      return nullptr;
     }
 
-    request_state* recv(memory_context::heap_type::pointer& ptr, std::size_t size, rank_type src,
-        tag_type tag, std::function<void(rank_type, tag_type)>&& cb, std::size_t* scheduled)
+    // construct request which is also an operation context
+    auto request = make_operation_context(std::move(cb));
+
+    SPDLOG_DEBUG("{:20} thisrank {} src/dst {} reg:{} tag {} stag {:#08x} addr {} size {} reg "
+                 "size {:06} op_ctx {:p} req {:p}",
+        "send", rank(), dst, reg, tag, stag, (void*) (reg.get_address()), size, reg.get_size(),
+        (void*) request, (void*) request);
+#if libfatbat_ENABLE_DEVICE
+    if (!ptr.on_device())
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
-      std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
+      LF_DEB(com_deb<9>,
+          debug(str<>("send region CRC32"), mem_crc32(reg.get_address(), size, "CRC32")));
+    }
+#endif
+
+    send_tagged_region(reg, size, fi_addr_t(dst), stag, request);
+    return request;
+  }
+
+  operation_context* recv(memory_context::heap_type::pointer& ptr, std::size_t size, rank_type src,
+      tag_type tag, std::function<void(rank_type, tag_type)>&& cb, std::size_t* scheduled)
+  {
+    SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
 
 #if libfatbat_ENABLE_DEVICE
-      auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
+    auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
 #else
-      auto const& reg = ptr.handle();
+    auto const& reg = ptr.handle();
 #endif
 
-      m_controller->recvs_posted_++;
+    m_controller->recvs_posted_++;
 
-      // construct request which is also an operation context
-      auto request = make_request_state(std::move(cb));
+    // construct request which is also an operation context
+    auto request = make_operation_context(std::move(cb));
 
-      SPDLOG_DEBUG("{:20} thisrank {} src/dst {} tag {} stag {:#08x} addr {:p} size {:#06x} reg "
-                   "size {:#06x} op_ctx {:p} req {:p}",
-          "recv", rank(), src, tag, stag, (void*) (reg.get_address()), size, reg.get_size(),
-          (void*) request, (void*) request);
+    SPDLOG_DEBUG("{:20} thisrank {} src/dst {} tag {} stag {:#08x} addr {:p} size {:#06x} reg "
+                 "size {:#06x} op_ctx {:p} req {:p}",
+        "recv", rank(), src, tag, stag, (void*) (reg.get_address()), size, reg.get_size(),
+        (void*) request, (void*) request);
 
 #if libfatbat_ENABLE_DEVICE
-      if (!ptr.on_device())
-      {
-        LF_DEB(com_deb<9>,
-            debug(str<>("recv region CRC32"), mem_crc32(reg.get_address(), size, "CRC32")));
-      }
+    if (!ptr.on_device())
+    {
+      LF_DEB(com_deb<9>,
+          debug(str<>("recv region CRC32"), mem_crc32(reg.get_address(), size, "CRC32")));
+    }
 #endif
 
-      recv_tagged_region(reg, size, fi_addr_t(src), stag, request);
-      return request;
-    }
+    recv_tagged_region(reg, size, fi_addr_t(src), stag, request);
+    return request;
+  }
 
-    // --------------------------------------------------------------------
-    // progress function that can be called at application level
-    void progress()
-    {
-      m_controller->poll_for_work_completions(this);
-      clear_callback_queues();
-    }
+  // --------------------------------------------------------------------
+  // progress function that can be called at application level
+  void progress()
+  {
+    m_controller->poll_for_work_completions(this);
+    clear_callback_queues();
+  }
 
-    void clear_callback_queues()
-    {
-      // work through ready callbacks, which were pushed to the queue
-      // (by other threads)
-      m_send_cb_queue.consume_all([](request_state* req) {
-        SPDLOG_SCOPE("{} {:p}", "m_send_cb_queue.consume_all", (void*) (req));
-        req->invoke_cb();
-      });
+  void clear_callback_queues()
+  {
+    // work through ready callbacks, which were pushed to the queue
+    // (by other threads)
+    m_send_cb_queue.consume_all([](operation_context* req) {
+      SPDLOG_SCOPE("{} {:p}", "m_send_cb_queue.consume_all", (void*) (req));
+      req->invoke_cb();
+    });
 
-      m_recv_cb_queue.consume_all([](request_state* req) {
-        SPDLOG_SCOPE("{} {:p}", "m_recv_cb_queue.consume_all", (void*) (req));
-        req->invoke_cb();
-      });
-    }
-  };
-
-}    // namespace libfatbat
+    m_recv_cb_queue.consume_all([](operation_context* req) {
+      SPDLOG_SCOPE("{} {:p}", "m_recv_cb_queue.consume_all", (void*) (req));
+      req->invoke_cb();
+    });
+  }
+};

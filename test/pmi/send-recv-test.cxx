@@ -103,7 +103,7 @@ int main(int argc, char** argv)
 
   // -------------------------------------------------
   // The communicator is one abstraction level higher than the controller
-  libfatbat::communicator comm(&controller, rank, size);
+  communicator comm(&controller, rank, size);
 
   // -------------------------------------------------
   // a dedicated thread for polling completions
