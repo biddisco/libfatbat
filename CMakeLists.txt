@@ -73,7 +73,7 @@ set_property(
 )
 
 # implement some counters of internal actions
-option(FATBAT_WITH_PERFORMANCE_COUNTERS "Enable internal counters (default: OFF)" OFF)
+option(FATBAT_WITH_COUNTERS "Enable internal counters (default: OFF)" ON)
 
 # ---------------------------------------------------------------------
 # Libfabric
@@ -127,8 +127,8 @@ endif()
 # ------------------------------------------------------------------------------
 # Performance counters
 # ------------------------------------------------------------------------------
-if(FATBAT_WITH_PERFORMANCE_COUNTERS)
-  libfatbat_add_config_define_namespace(DEFINE FATBAT_HAVE_PERFORMANCE_COUNTERS NAMESPACE libfatbat)
+if(FATBAT_WITH_COUNTERS)
+  libfatbat_add_config_define_namespace(DEFINE FATBAT_HAVE_COUNTERS NAMESPACE libfatbat)
 endif()
 
 # ---------------------------------------------------------------------

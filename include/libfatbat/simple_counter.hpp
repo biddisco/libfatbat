@@ -15,7 +15,7 @@
 #include <iostream>
 #include <type_traits>
 
-#ifdef FATBAT_HAVE_PERFORMANCE_COUNTERS
+#ifdef FATBAT_HAVE_COUNTERS
 # define PERFORMANCE_COUNTER_ENABLED true
 #else
 # define PERFORMANCE_COUNTER_ENABLED false
