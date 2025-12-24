@@ -89,6 +89,11 @@ int main(int argc, char** argv)
   controller.initialize(HAVE_LIBFATBAT_PROVIDER, rank == 0, size, nthreads);
   pmi.boot_PMI(&controller);
 
+  // we can keep pmi alive to use a fence at the end in case one rank fisnishes before others
+  // it seems to be ok if we shut down pmi here
+  pmi.fence();
+  pmi.finalize_PMI();
+
   if (size < 2)
   {
     SPDLOG_ERROR("This test requires exactly 2 ranks.");
@@ -111,7 +116,7 @@ int main(int argc, char** argv)
 
   // -------------------------------------------------
   // test sending and receiving messages of increasing size
-  std::vector<memory_context::heap_type::pointer> send_recv_buffers;
+  std::vector<std::tuple<uint32_t, memory_context::heap_type::pointer>> send_recv_buffers;
 
   for (std::size_t bitshift = 0; bitshift < 20; ++bitshift)
   {
@@ -122,11 +127,15 @@ int main(int argc, char** argv)
     auto send_buffer = h.allocate(msg_size, 0);
     auto recv_buffer = h.allocate(msg_size, 0);
     // store those buffers so we can delete them later
-    send_recv_buffers.push_back(send_buffer);
-    send_recv_buffers.push_back(recv_buffer);
+    send_recv_buffers.push_back(std::make_pair(tag, send_buffer));
+    send_recv_buffers.push_back(std::make_pair(tag, recv_buffer));
 
     // Fill send buffer with pattern based on tag
-    // std::fill((char*)(send_buffer.get()), (char*)(send_buffer.get()) + msg_size, static_cast<uint8_t>(tag));
+    std::fill((char*) (send_buffer.get()), (char*) (send_buffer.get()) + msg_size,
+        static_cast<uint8_t>(tag));
+    // Fill recv buffer with known invalid pattern
+    std::fill((char*) (recv_buffer.get()), (char*) (recv_buffer.get()) + msg_size,
+        static_cast<uint8_t>(0xff));
 
     // for each rank, do a send/recv
     for (int r = 0; r < size; ++r)
@@ -157,10 +166,32 @@ int main(int argc, char** argv)
         (uint32_t) controller.recvs_complete_, (uint32_t) controller.recvs_posted_);
   }
 
-  // clean up the pinned memory buffers
-  for (auto& buf : send_recv_buffers) { h.free(buf); }
+  // clean up the pinned memory buffers, first scaan them to make sure all contain
+  // the expected tag value - the send buffers were filled by us with tags, the
+  // recv buffers should have been filled by the sending rank with the same tag
+  for (auto& buf : send_recv_buffers)
+  {
+    auto tag = std::get<0>(buf);
+    auto buffer = std::get<1>(buf);
+    auto buffer_ptr = (uint8_t*) (buffer.get());
+    SPDLOG_DEBUG("rank {} validating buffer with tag {}", rank, tag);
+    bool valid = true;
+    for (std::size_t i = 0; i < (1 << tag); ++i)
+    {
+      if (buffer_ptr[i] != static_cast<uint8_t>(tag))
+      {
+        valid = false;
+        break;
+      }
+    }
+    if (!valid)
+    {
+      SPDLOG_ERROR("rank {} buffer validation failed for tag {}", rank, tag);
+      throw std::runtime_error("buffer validation failed");
+    }
+    SPDLOG_DEBUG("rank {} freeing buffer with tag {}", rank, tag);
+    h.free(std::get<1>(buf));
+  }
 
-  pmi.fence();
-  pmi.finalize_PMI();
   return 0;
 }
