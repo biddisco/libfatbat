@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------
 # PMI(x) tests which have one c++ file per exe
 # ------------------------------------------------------------------------------
-set(PMI_TEST_SRCS pmi-boot-libfabric send-recv-test)
+set(PMI_TEST_SRCS pmi-boot-libfabric send-recv-test rdma-read-test)
 
 if(PMIx_FOUND)
   list(APPEND PMI_TEST_SRCS kv-test-pmix)

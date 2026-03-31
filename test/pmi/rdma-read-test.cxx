@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <thread>
 //
 #include <boost/program_options.hpp>
@@ -79,7 +80,7 @@ int main(int argc, char** argv)
 
   // -------------------------------------------------
   // we need these for basic control
-  std::size_t rank, size, nthreads = 4;    // any nthreads>1 triggers thread safety code paths
+  std::size_t rank, size, nthreads = 2;    // any nthreads>1 triggers thread safety code paths
   test_controller controller;
   pmi_helper pmi;
 
@@ -89,7 +90,7 @@ int main(int argc, char** argv)
   controller.initialize(HAVE_LIBFATBAT_PROVIDER, rank == 0, size, nthreads);
   pmi.boot_PMI(&controller);
 
-  // we can keep pmi alive to use a fence at the end in case one rank finishes before others
+  // we can keep pmi alive to use a fence at the end in case one rank fisnishes before others
   // it seems to be ok if we shut down pmi here
   pmi.fence();
   pmi.finalize_PMI();
@@ -101,8 +102,8 @@ int main(int argc, char** argv)
   }
 
   // -------------------------------------------------
-  // memory pinning utility - hwmalloc needs to know which library we are using to pin memory
-  // so we pass our libfatbat::controller in to setup the context
+  // memory pinning utility - hwmall needs to know which library we are using to pin memory
+  // so we pass our libfatbat::controller into set up the context
   memory_context c(&controller);
   memory_context::heap_type heap(&c);
 
@@ -118,23 +119,76 @@ int main(int argc, char** argv)
   // test sending and receiving messages of increasing size
   std::vector<std::tuple<uint32_t, memory_context::heap_type::pointer>> send_recv_buffers;
 
-  for (std::size_t bitshift = 0; bitshift < 20; ++bitshift)
-  {
-    // just use a simple tag based on the bitshift
-    uint32_t tag = bitshift;
-    std::size_t msg_size = 1 << bitshift;
+  // our test will exchange RMA messages of this size
+  constexpr int32_t message_size = 1024 * 1024 * 16;    // 16 MB
 
-    auto send_buffer = heap.allocate(msg_size, 0);
-    auto recv_buffer = heap.allocate(msg_size, 0);
+  // we want to exchange RMA keys with other ranks, so lets create storage
+  struct rma_key_info
+  {
+    void* address;
+    uint64_t key;
+    uint64_t length;
+  };
+  // allocate space for an RMA key from each rank and space to read remote data into
+  std::vector<memory_context::heap_type::pointer> rma_read_keys;
+  std::vector<memory_context::heap_type::pointer> rma_read_buffers;
+  // allocate buffers we still store data in and each other rank will read from
+  std::vector<memory_context::heap_type::pointer> data_keys;
+  std::vector<memory_context::heap_type::pointer> data_buffers;
+
+  // for each rank, allocate RMA buffers
+  for (int i = 0; i < size; i++)
+  {
+    // we will read data into these buffers from some other rank
+    auto remote_read_buffer = heap.allocate(message_size, 0);
+    rma_read_buffers.push_back(remote_read_buffer);
+
+    // to perform reads, we need to get keys from each rank, we will store them in here
+    auto remote_key_buffer = heap.allocate(sizeof(rma_key_info), 0);
+    rma_read_keys.push_back(remote_key_buffer);
+
+    // we will fill these buffers with data and others will read from them
+    auto local_data_buffer = heap.allocate(message_size, 0);
+    // fill the buffer with a pattern based on our rank
+    std::fill((char*) (local_data_buffer.get()), (char*) (local_data_buffer.get()) + message_size,
+        static_cast<uint8_t>(rank));
+    data_buffers.push_back(local_data_buffer);
+
+    // these are the buffers we will use to share our RMA key info with other ranks
+    auto data_key = heap.allocate(sizeof(rma_key_info), 0);
+    rma_key_info info{.address = data_key.handle().get_address(),
+        .key = (uint64_t) data_key.handle().get_local_key(),
+        .length = sizeof(rma_key_info)};
+    std::memcpy(data_key.get(), &info, sizeof(rma_key_info));
+    data_keys.push_back(data_key);
+  }
+
+  // for each rank, exchange an RMA key
+  for (int r = 0; r < size; ++r)
+  {
+    if (rank != r)
+    {
+      SPDLOG_TRACE("{:20} rank {} from rank {}", "receiving RMA key info", rank, r);
+      comm.recv(rma_keys[r], sizeof(rma_key_info), r, rank, nullptr);
+
+      SPDLOG_TRACE("{:20} rank {} to rank {}", "sending RMA key info", rank, r);
+      comm.send(rma_keys[rank], sizeof(rma_key_info), r, rank, nullptr);
+    }
+  }
+
+  for (std::size_t iterations = 0; iterations < 1; ++iterations)
+  {
+    auto send_buffer = heap.allocate(message_size, 0);
+    auto recv_buffer = heap.allocate(message_size, 0);
     // store those buffers so we can delete them later
     send_recv_buffers.push_back(std::make_pair(tag, send_buffer));
     send_recv_buffers.push_back(std::make_pair(tag, recv_buffer));
 
     // Fill send buffer with pattern based on tag
-    std::fill((char*) (send_buffer.get()), (char*) (send_buffer.get()) + msg_size,
+    std::fill((char*) (send_buffer.get()), (char*) (send_buffer.get()) + message_size,
         static_cast<uint8_t>(tag));
     // Fill recv buffer with known invalid pattern
-    std::fill((char*) (recv_buffer.get()), (char*) (recv_buffer.get()) + msg_size,
+    std::fill((char*) (recv_buffer.get()), (char*) (recv_buffer.get()) + message_size,
         static_cast<uint8_t>(0xff));
 
     // for each rank, do a send/recv
@@ -143,11 +197,11 @@ int main(int argc, char** argv)
       if (rank != r)    // we don't send/recv to ourself
       {
         SPDLOG_TRACE("{:20} of size {:#06x} rank {} from rank {} tag {}", "receiving message",
-            msg_size, rank, r, tag);
-        comm.recv(recv_buffer, msg_size, fi_addr_t(r), tag, nullptr /*, nullptr*/);
-        SPDLOG_TRACE("{:20} of size {:#06x} rank {} to rank {} tag {}", "sending message", msg_size,
-            rank, r, tag);
-        comm.send(send_buffer, msg_size, fi_addr_t(r), tag, nullptr /*, nullptr*/);
+            message_size, rank, r, tag);
+        comm.recv(recv_buffer, message_size, r, tag, nullptr, nullptr);
+        SPDLOG_TRACE("{:20} of size {:#06x} rank {} to rank {} tag {}", "sending message",
+            message_size, rank, r, tag);
+        comm.send(send_buffer, message_size, r, tag, nullptr, nullptr);
       }
       controller.poll_for_work_completions(nullptr);
     }

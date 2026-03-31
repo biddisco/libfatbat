@@ -199,8 +199,39 @@ struct communicator
   }
 
   // --------------------------------------------------------------------
+  void read_remote(region_type const& recv_region, std::size_t size, fi_addr_t rem_rank_,
+      void* remote_addr, uint64_t remote_key, operation_context* ctxt)
+  {
+    SPDLOG_DEBUG(
+        "{:20} {:02} {} context {:p} rx endpoint {:p} size {} rem_addr {:p} rem_key {:#08x}",
+        "read_remote", rem_rank_, recv_region, (void*) (ctxt), (void*) (m_rx_endpoint.get_ep()),
+        size, remote_addr, remote_key);
+    execute_fi_function(fi_read, "fi_read", m_tx_endpoint.get_ep(), recv_region.get_address(), size,
+        recv_region.get_local_key(), rem_rank_, (uint64_t) (remote_addr), remote_key, ctxt);
+  }
+
+  // --------------------------------------------------------------------
+  operation_context* read(memory_context::heap_type::pointer const& ptr, std::size_t size,
+      rank_type dst, void* remote_addr, uint64_t remote_key, request_callback_type&& cb)
+  {
+    SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+
+#if libfatbat_ENABLE_DEVICE
+    auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
+#else
+    auto const& reg = ptr.handle();
+#endif
+
+    // construct request which is also an operation context
+    auto request = make_operation_context(std::move(cb));
+
+    read_remote(reg, size, fi_addr_t(dst), remote_addr, remote_key, request);
+    return request;
+  }
+
+  // --------------------------------------------------------------------
   operation_context* send(memory_context::heap_type::pointer const& ptr, std::size_t size,
-      rank_type dst, tag_type tag, request_callback_type&& cb, std::size_t* scheduled)
+      rank_type dst, tag_type tag, request_callback_type&& cb)
   {
     SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
     std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
@@ -244,8 +275,9 @@ struct communicator
     return request;
   }
 
+  // --------------------------------------------------------------------
   operation_context* recv(memory_context::heap_type::pointer& ptr, std::size_t size, rank_type src,
-      tag_type tag, std::function<void(rank_type, tag_type)>&& cb, std::size_t* scheduled)
+      tag_type tag, std::function<void(rank_type, tag_type)>&& cb)
   {
     SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
     std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());

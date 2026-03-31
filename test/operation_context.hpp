@@ -62,4 +62,20 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
     SPDLOG_SCOPE("{} {} user_data {}", (void*) (this), __func__, user_data);
     return 0;
   }
+
+  // --------------------------------------------------------------------
+  // Called when an RMA read completes
+  inline int handle_rma_read_completion_impl()
+  {
+    SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    return 0;
+  }
+
+  // --------------------------------------------------------------------
+  // Called when an RMA write completes
+  inline int handle_rma_write_completion_impl()
+  {
+    SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    return 0;
+  }
 };
