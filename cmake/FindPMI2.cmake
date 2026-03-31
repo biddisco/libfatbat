@@ -2,14 +2,13 @@ find_package(PkgConfig QUIET)
 
 # look for cray pmi...
 pkg_check_modules(PC_PMI_CRAY QUIET cray-pmi)
+message(STATUS "PMI_CRAY_FOUND: ${PC_PMI_CRAY_FOUND}")
 
-# look for the rest if we couldn't find the cray package
+# look for the regular pmi if we couldn't find the cray package
 if(NOT PC_PMI_CRAY_FOUND)
   pkg_check_modules(PC_PMI QUIET pmi)
+  message(STATUS "PMI_FOUND: ${PC_PMI_FOUND}")
 endif()
-
-message(STATUS "PMI: PkgConfig PC_PMI_CRAY_FOUND is ${PC_PMI_CRAY_FOUND}")
-message(STATUS "PMI: PkgConfig PC_PMI_FOUND is ${PC_PMI_FOUND}")
 
 find_path(
   PMI_INCLUDE_DIR pmi2.h
@@ -62,8 +61,11 @@ mark_as_advanced(PMI_ROOT PMI_LIBRARY PMI_INCLUDE_DIR)
 
 if(NOT TARGET PMI2::pmi2 AND PMI2_FOUND)
   add_library(PMI2::pmi2 SHARED IMPORTED)
-  set_target_properties(PMI2::pmi2 PROPERTIES
-    IMPORTED_LOCATION ${PMI_LIBRARY}
-    INTERFACE_INCLUDE_DIRECTORIES ${PMI_INCLUDE_DIR}
+  set_target_properties(
+    PMI2::pmi2 PROPERTIES IMPORTED_LOCATION ${PMI_LIBRARY} INTERFACE_INCLUDE_DIRECTORIES
+                                                           ${PMI_INCLUDE_DIR}
   )
+  target_include_directories(PMI2::pmi2 INTERFACE ${PMI_INCLUDE_DIR})
+  target_compile_definitions(PMI2::pmi2 INTERFACE "FATBAT_PMI2_ENABLED")
+  set(PMI_LIBRARY_TARGET PMI2::pmi2)
 endif()

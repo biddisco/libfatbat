@@ -1,30 +1,20 @@
 include(FindPackageHandleStandardArgs)
 find_package(PkgConfig QUIET)
 
-if (PkgConfig_FOUND)
+if(PkgConfig_FOUND)
   pkg_check_modules(PMIx REQUIRED pmix)
 endif()
 
-if (NOT PMIx_FOUND)
-  find_path(
-    PMIx_INCLUDE_DIRS pmix.h
-    HINTS ${PMIx_ROOT}
-          ENV
-          PMIx_ROOT
-          ${PMIx_DIR}
-          ENV
-          PMIx_DIR
-    PATH_SUFFIXES include
+message(STATUS "PMIx_FOUND: ${PMIx_FOUND}")
+if(PMIx_FOUND)
+  message(STATUS "PMIx_VERSION: ${PMIx_VERSION}")
+  set(PMIx_LIBRARIES ${PMIx_LINK_LIBRARIES})
+else()
+  find_path(PMIx_INCLUDE_DIRS pmix.h HINTS ${PMIx_ROOT} ENV PMIx_ROOT ${PMIx_DIR} ENV PMIx_DIR
+            PATH_SUFFIXES include
   )
 
-  find_library(
-    PMIx_LIBRARIES
-    NAMES pmix
-    HINTS ${PMIx_ROOT}
-          ENV
-          PMIx_ROOT
-    PATH_SUFFIXES lib lib64
-  )
+  find_library(PMIx_LIBRARIES NAMES pmix HINTS ${PMIx_ROOT} ENV PMIx_ROOT PATH_SUFFIXES lib lib64)
 
   # Set PMIx_ROOT in case the other hints are used
   if(PMIx_ROOT)
@@ -41,9 +31,6 @@ if (NOT PMIx_FOUND)
     set(PMIx_FOUND=OFF)
     return()
   endif()
-else()
-  # pckconfig returns the var we want as a link library
-  set(PMIx_LIBRARIES ${PMIx_LINK_LIBRARIES})
 endif()
 
 find_package_handle_standard_args(PMIx DEFAULT_MSG PMIx_LIBRARIES PMIx_INCLUDE_DIRS)
@@ -52,10 +39,11 @@ mark_as_advanced(PMIx_ROOT PMIx_LIBRARIES PMIx_INCLUDE_DIRS)
 
 if(NOT TARGET PMIX::pmix AND PMIx_FOUND)
   add_library(PMIX::pmix SHARED IMPORTED)
-  set_target_properties(PMIX::pmix PROPERTIES
-    IMPORTED_LOCATION ${PMIx_LIBRARIES}
-    INTERFACE_INCLUDE_DIRECTORIES ${PMIx_INCLUDE_DIRS}
+  set_target_properties(
+    PMIX::pmix PROPERTIES IMPORTED_LOCATION ${PMIx_LIBRARIES} INTERFACE_INCLUDE_DIRECTORIES
+                                                              ${PMIx_INCLUDE_DIRS}
   )
+  target_include_directories(PMIX::pmix INTERFACE ${PMIx_INCLUDE_DIRS})
+  target_compile_definitions(PMIX::pmix INTERFACE "FATBAT_PMIx_ENABLED")
+  set(PMI_LIBRARY_TARGET PMIX::pmix)
 endif()
-
-set(LIBFATBAT_PMI_LIBRARY PMIX::pmix)
