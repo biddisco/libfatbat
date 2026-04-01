@@ -35,7 +35,7 @@ struct scoped_var
     std::string message_str_ = std::apply(
         [&](auto const&... args) { return fmt::vformat(format_, fmt::make_format_args(args...)); },
         message_);
-    SPDLOG_INFO("{:20} {}", ">> enter <<", message_str_);
+    SPDLOG_TRACE("{:20} {}", ">> enter <<", message_str_);
     // SPDLOG_INFO("{:20} {}", ">> enter <<", "message_str_");
     // SPDLOG_INFO("{:20} {}", ">> enter <<",
     //   fmt::vformat(format_, fmt::make_format_args(std::apply([](auto const&... args) { return std::make_tuple(args...); }, message_))));

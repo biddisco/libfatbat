@@ -72,7 +72,7 @@ struct fi_mr_attr {
         size_t len, uint64_t access_flags, uint64_t offset, uint64_t request_key,
         struct fid_mr** mr)
     {
-      SPDLOG_SCOPE("{} {} {:#06x} {:05}", __func__, buf, len, device_id);
+      SPDLOG_SCOPE("{} {} {:#10x} {:05}", __func__, buf, len, device_id);
       //
       struct iovec addresses = {/*.iov_base = */ const_cast<void*>(buf), /*.iov_len = */ len};
       fi_mr_attr attr = {
@@ -283,7 +283,10 @@ namespace libfatbat {
         SPDLOG_TRACE("fi_close mr failed");
         return -1;
       }
-      else { SPDLOG_TRACE("{:20} {}", "de-Registered region", *this); }
+      else
+      {
+        SPDLOG_TRACE("{:20} {}", "de-Registered region", *this);
+      }
       region_ = nullptr;
     }
     return 0;
@@ -353,11 +356,17 @@ namespace libfatbat {
       {
         ret = fi_mr_bind(region_, (struct fid*) ep, 0);
         if (ret) { throw libfatbat::fabric_error(int(ret), "fi_mr_bind"); }
-        else { SPDLOG_TRACE("Bound region {}", (void*) this); }
+        else
+        {
+          SPDLOG_TRACE("Bound region {}", (void*) this);
+        }
 
         ret = fi_mr_enable(region_);
         if (ret) { throw libfatbat::fabric_error(int(ret), "fi_mr_enable"); }
-        else { SPDLOG_TRACE("Enabled region {}", (void*) this); }
+        else
+        {
+          SPDLOG_TRACE("Enabled region {}", (void*) this);
+        }
       }
     }
 

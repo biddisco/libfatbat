@@ -148,7 +148,10 @@ class test_controller : public libfatbat::controller_base<test_controller>
     {
       // do nothing, we will try again on the next check
     }
-    else { SPDLOG_ERROR("{:20} unknown error in completion txcq read", "Completion"); }
+    else
+    {
+      SPDLOG_ERROR("{:20} unknown error in completion txcq read", "Completion");
+    }
     return 0;
   }
 
@@ -247,7 +250,10 @@ class test_controller : public libfatbat::controller_base<test_controller>
     {
       // do nothing, we will try again on the next check
     }
-    else { SPDLOG_ERROR("{:20} unknown error in completion rxcq read", "Completion"); }
+    else
+    {
+      SPDLOG_ERROR("{:20} unknown error in completion rxcq read", "Completion");
+    }
     return 0;
   }
 };

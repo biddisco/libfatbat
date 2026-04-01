@@ -133,7 +133,10 @@ struct pmi_helper
         std::copy(binary_t(encoded_data), binary_t(encoded_data + encoded_length),
             (new_locality.fabric_data_writable()));
       }
-      else { new_locality = here; }
+      else
+      {
+        new_locality = here;
+      }
 
       // insert locality into address vector
       SPDLOG_DEBUG("{:20} for rank {} on rank {:04}", "insert_address", i, rank);
@@ -223,7 +226,7 @@ struct pmi_helper
     // Key name for PMI
     std::string pmi_key = "LIBFABRIC_" + std::to_string(rank);
     // insert our data in the KV store
-    SPDLOG_DEBUG("{:20} on rank {:04} {} {}", "PMI2_KVS_Put", rank, pmi_key, encoded_locality);
+    SPDLOG_DEBUG("{:20} on rank {:04} {} {}", "PMIx_KVS_Put", rank, pmi_key, encoded_locality);
 
     // share {key,value} across all ranks
     pmix_value_t value;
@@ -263,7 +266,10 @@ struct pmi_helper
         std::copy(binary_t(encoded_address.begin()), binary_t(encoded_address.end()),
             (new_locality.fabric_data_writable()));
       }
-      else { new_locality = here; }
+      else
+      {
+        new_locality = here;
+      }
       // insert locality into address vector
       SPDLOG_DEBUG("{:20} rank {:04} decode from rank {:04}", "insert_address", myproc.rank, r);
       new_locality = controller->insert_address(new_locality);

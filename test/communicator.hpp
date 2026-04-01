@@ -50,7 +50,10 @@ struct memory_context
       void* endpoint = m_controller->get_rx_endpoint().get_ep();
       return region_type(m_domain, ptr, size, true, endpoint, device_id);
     }
-    else { return region_type(m_domain, ptr, size, false, nullptr, device_id); }
+    else
+    {
+      return region_type(m_domain, ptr, size, false, nullptr, device_id);
+    }
   }
 };
 

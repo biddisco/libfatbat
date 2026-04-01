@@ -19,39 +19,8 @@
 #include "libfatbat/logging.hpp"
 //
 #include "../communicator.hpp"
+#include "../polling_helper.hpp"
 #include "../test_controller.hpp"
-
-// ----------------------------------------------------------------------------
-// Spawns a background thread that polls until stop_flag is set.
-inline std::thread spawn_poll_thread(test_controller* ctrl, std::atomic<bool>& stop_flag)
-{
-  return std::thread([&ctrl, &stop_flag]() {
-    while (!stop_flag.load(std::memory_order_acquire))
-    {
-      // std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      // TODO: call the progress/poll function(s) here, e.g.:
-      // ctrl->poll_for_work_completions(nullptr);
-      // SPDLOG_TRACE("{:20}", "Polling loop");
-    }
-  });
-}
-
-// RAII helper to manage poll thread lifetime.
-struct poller_guard
-{
-  std::atomic<bool> stop{false};
-  std::thread thread_;
-
-  explicit poller_guard(test_controller* ctx)
-    : thread_(spawn_poll_thread(ctx, stop))
-  {
-  }
-  ~poller_guard()
-  {
-    stop.store(true, std::memory_order_release);
-    if (thread_.joinable()) thread_.join();
-  }
-};
 
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
@@ -79,7 +48,7 @@ int main(int argc, char** argv)
 
   // -------------------------------------------------
   // we need these for basic control
-  std::size_t rank, size, nthreads = 4;    // any nthreads>1 triggers thread safety code paths
+  std::size_t rank, size, nthreads = 2;    // any nthreads>1 triggers thread safety code paths
   test_controller controller;
   pmi_helper pmi;
 
@@ -111,59 +80,58 @@ int main(int argc, char** argv)
   communicator comm(&controller, rank, size);
 
   // -------------------------------------------------
-  // a dedicated thread for polling completions
-  poller_guard pg(&controller);
-
-  // -------------------------------------------------
   // test sending and receiving messages of increasing size
   std::vector<std::tuple<uint32_t, memory_context::heap_type::pointer>> send_recv_buffers;
 
-  for (std::size_t bitshift = 0; bitshift < 20; ++bitshift)
   {
-    // just use a simple tag based on the bitshift
-    uint32_t tag = bitshift;
-    std::size_t msg_size = 1 << bitshift;
+    // -------------------------------------------------
+    // a dedicated thread for polling completions
+    poller_guard pg(&controller, rank);
 
-    auto send_buffer = heap.allocate(msg_size, 0);
-    auto recv_buffer = heap.allocate(msg_size, 0);
-    // store those buffers so we can delete them later
-    send_recv_buffers.push_back(std::make_pair(tag, send_buffer));
-    send_recv_buffers.push_back(std::make_pair(tag, recv_buffer));
-
-    // Fill send buffer with pattern based on tag
-    std::fill((char*) (send_buffer.get()), (char*) (send_buffer.get()) + msg_size,
-        static_cast<uint8_t>(tag));
-    // Fill recv buffer with known invalid pattern
-    std::fill((char*) (recv_buffer.get()), (char*) (recv_buffer.get()) + msg_size,
-        static_cast<uint8_t>(0xff));
-
-    // for each rank, do a send/recv
-    for (int r = 0; r < size; ++r)
+    for (std::size_t bitshift = 0; bitshift < 20; ++bitshift)
     {
-      if (rank != r)    // we don't send/recv to ourself
-      {
-        SPDLOG_TRACE("{:20} of size {:#06x} rank {} from rank {} tag {}", "receiving message",
-            msg_size, rank, r, tag);
-        comm.recv(recv_buffer, msg_size, fi_addr_t(r), tag, nullptr /*, nullptr*/);
-        SPDLOG_TRACE("{:20} of size {:#06x} rank {} to rank {} tag {}", "sending message", msg_size,
-            rank, r, tag);
-        comm.send(send_buffer, msg_size, fi_addr_t(r), tag, nullptr /*, nullptr*/);
-      }
-      controller.poll_for_work_completions(nullptr);
-    }
-    controller.poll_for_work_completions(nullptr);
-    SPDLOG_DEBUG("rank {} sends: {}/{}, recvs: {}/{}", rank,    //
-        (uint32_t) controller.sends_complete_, (uint32_t) controller.sends_posted_,
-        (uint32_t) controller.recvs_complete_, (uint32_t) controller.recvs_posted_);
-  }
+      // just use a simple tag based on the bitshift
+      uint32_t tag = bitshift;
+      std::size_t msg_size = 1 << bitshift;
 
-  while (controller.sends_complete_ < controller.sends_posted_ ||
-      controller.recvs_complete_ < controller.recvs_posted_)
-  {
-    controller.poll_for_work_completions(nullptr);
-    SPDLOG_TRACE("rank {} sends: {}/{}, recvs: {}/{}", rank,    //
-        (uint32_t) controller.sends_complete_, (uint32_t) controller.sends_posted_,
-        (uint32_t) controller.recvs_complete_, (uint32_t) controller.recvs_posted_);
+      auto send_buffer = heap.allocate(msg_size, 0);
+      auto recv_buffer = heap.allocate(msg_size, 0);
+      // store those buffers so we can delete them later
+      send_recv_buffers.push_back(std::make_pair(tag, send_buffer));
+      send_recv_buffers.push_back(std::make_pair(tag, recv_buffer));
+
+      // Fill send buffer with pattern based on tag
+      std::fill((char*) (send_buffer.get()), (char*) (send_buffer.get()) + msg_size,
+          static_cast<uint8_t>(tag));
+      // Fill recv buffer with known invalid pattern
+      std::fill((char*) (recv_buffer.get()), (char*) (recv_buffer.get()) + msg_size,
+          static_cast<uint8_t>(0xff));
+
+      // for each rank, do a send/recv
+      for (int r = 0; r < size; ++r)
+      {
+        if (rank != r)    // we don't send/recv to ourself
+        {
+          SPDLOG_TRACE("{:20} of size {:#06x} rank {} from rank {} tag {}", "receiving message",
+              msg_size, rank, r, tag);
+          comm.recv(recv_buffer, msg_size, fi_addr_t(r), tag, nullptr /*, nullptr*/);
+
+          SPDLOG_TRACE("{:20} of size {:#06x} rank {} to rank {} tag {}", "sending message",
+              msg_size, rank, r, tag);
+          comm.send(send_buffer, msg_size, fi_addr_t(r), tag, nullptr /*, nullptr*/);
+        }
+      }
+    }
+
+    while (controller.sends_complete_ < controller.sends_posted_ ||
+        controller.recvs_complete_ < controller.recvs_posted_)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      SPDLOG_TRACE("rank {} sends: {}/{}, recvs: {}/{}", rank,    //
+          (uint32_t) controller.sends_complete_, (uint32_t) controller.sends_posted_,
+          (uint32_t) controller.recvs_complete_, (uint32_t) controller.recvs_posted_);
+    }
+    SPDLOG_DEBUG("{:20} rank {}", "Exiting polling scope", rank);
   }
 
   // clean up the pinned memory buffers, first scaan them to make sure all contain
@@ -193,5 +161,6 @@ int main(int argc, char** argv)
     heap.free(std::get<1>(buf));
   }
 
+  SPDLOG_DEBUG("{:20} rank {}", "Exiting", rank);
   return 0;
 }

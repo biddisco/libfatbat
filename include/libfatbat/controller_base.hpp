@@ -791,7 +791,10 @@ public:
       {
         fabric_hints_->fabric_attr->prov_name = strdup(std::string(provider + ";ofi_rxm").c_str());
       }
-      else { fabric_hints_->fabric_attr->prov_name = strdup(provider.c_str()); }
+      else
+      {
+        fabric_hints_->fabric_attr->prov_name = strdup(provider.c_str());
+      }
       SPDLOG_DEBUG("{:20} {}", "fabric provider", fabric_hints_->fabric_attr->prov_name);
 
 #if defined(HAVE_LIBFATBAT_CXI)
@@ -1079,7 +1082,10 @@ public:
       // Check the optimal number of TX/RX contexts supported by the provider
       size_t context_count = 0;
       if (tx) { context_count = std::min(new_hints->domain_attr->tx_ctx_cnt, threads); }
-      else { context_count = std::min(new_hints->domain_attr->rx_ctx_cnt, threads); }
+      else
+      {
+        context_count = std::min(new_hints->domain_attr->rx_ctx_cnt, threads);
+      }
 
       SPDLOG_TRACE("{:20} Tx {}, Threads {}, tx_ctx_cnt {}, rx_ctx_cnt {}, context_count {}",
           "scalable endpoint", tx, threads, new_hints->domain_attr->tx_ctx_cnt,
@@ -1137,7 +1143,8 @@ public:
       {
         if (eps_->tl_tx_.get_ep() == nullptr)
         {
-          SPDLOG_SCOPE("{} {} {}", (void*) (this), __func__, "threadlocal");
+          SPDLOG_DEBUG(
+              "{:20} {} {} {}", "get_tx_endpoint", (void*) (this), __func__, "threadlocal");
 
           // create a completion queue for tx endpoint
           fabric_info_->tx_attr->op_flags |= (FI_INJECT_COMPLETE | FI_COMPLETION);
@@ -1186,7 +1193,8 @@ public:
       }
       else if (endpoint_type_ == endpoint_type::multiple) { return eps_->ep_tx_; }
       {
-        // SPDLOG_SCOPE("{} {} {}", (void*) (this), __func__, "single/shared endpoint");
+        SPDLOG_DEBUG("{:20} {} {} {}", "get_tx_endpoint", (void*) (this), __func__,
+            "single/shared endpoint");
         // single : shared tx/rx endpoint
         return eps_->ep_rx_;
       }
@@ -1377,7 +1385,8 @@ public:
     {
       progress_status p{0, 0};
       bool retry = false;
-      do {
+      do
+      {
         // sends
         uint32_t nsend =
             static_cast<Derived*>(this)->poll_send_queue(get_tx_endpoint().get_tx_cq(), user_data);

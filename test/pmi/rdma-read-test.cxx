@@ -20,39 +20,8 @@
 #include "libfatbat/logging.hpp"
 //
 #include "../communicator.hpp"
+#include "../polling_helper.hpp"
 #include "../test_controller.hpp"
-
-// ----------------------------------------------------------------------------
-// Spawns a background thread that polls until stop_flag is set.
-inline std::thread spawn_poll_thread(test_controller* ctrl, std::atomic<bool>& stop_flag)
-{
-  return std::thread([&ctrl, &stop_flag]() {
-    while (!stop_flag.load(std::memory_order_acquire))
-    {
-      // std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      // TODO: call the progress/poll function(s) here, e.g.:
-      // ctrl->poll_for_work_completions(nullptr);
-      // SPDLOG_TRACE("{:20}", "Polling loop");
-    }
-  });
-}
-
-// RAII helper to manage poll thread lifetime.
-struct poller_guard
-{
-  std::atomic<bool> stop{false};
-  std::thread thread_;
-
-  explicit poller_guard(test_controller* ctx)
-    : thread_(spawn_poll_thread(ctx, stop))
-  {
-  }
-  ~poller_guard()
-  {
-    stop.store(true, std::memory_order_release);
-    if (thread_.joinable()) thread_.join();
-  }
-};
 
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
@@ -113,7 +82,7 @@ int main(int argc, char** argv)
 
   // -------------------------------------------------
   // a dedicated thread for polling completions
-  poller_guard pg(&controller);
+  poller_guard pg(&controller, rank);
 
   // -------------------------------------------------
   // test sending and receiving messages of increasing size
@@ -169,17 +138,20 @@ int main(int argc, char** argv)
     if (rank != r)
     {
       SPDLOG_TRACE("{:20} rank {} from rank {}", "receiving RMA key info", rank, r);
-      comm.recv(rma_keys[r], sizeof(rma_key_info), r, rank, nullptr);
+      comm.recv(rma_read_keys[r], sizeof(rma_key_info), r, rank, nullptr);
 
       SPDLOG_TRACE("{:20} rank {} to rank {}", "sending RMA key info", rank, r);
-      comm.send(rma_keys[rank], sizeof(rma_key_info), r, rank, nullptr);
+      comm.send(rma_read_keys[rank], sizeof(rma_key_info), r, rank, nullptr);
     }
   }
 
+  std::uint64_t base_tag = 0x0000'0000;
   for (std::size_t iterations = 0; iterations < 1; ++iterations)
   {
     auto send_buffer = heap.allocate(message_size, 0);
     auto recv_buffer = heap.allocate(message_size, 0);
+
+    std::uint64_t tag = base_tag + iterations;
     // store those buffers so we can delete them later
     send_recv_buffers.push_back(std::make_pair(tag, send_buffer));
     send_recv_buffers.push_back(std::make_pair(tag, recv_buffer));
@@ -198,10 +170,11 @@ int main(int argc, char** argv)
       {
         SPDLOG_TRACE("{:20} of size {:#06x} rank {} from rank {} tag {}", "receiving message",
             message_size, rank, r, tag);
-        comm.recv(recv_buffer, message_size, r, tag, nullptr, nullptr);
+
+        comm.recv(recv_buffer, message_size, r, tag, nullptr);
         SPDLOG_TRACE("{:20} of size {:#06x} rank {} to rank {} tag {}", "sending message",
             message_size, rank, r, tag);
-        comm.send(send_buffer, message_size, r, tag, nullptr, nullptr);
+        comm.send(send_buffer, message_size, r, tag, nullptr);
       }
       controller.poll_for_work_completions(nullptr);
     }
@@ -220,7 +193,7 @@ int main(int argc, char** argv)
         (uint32_t) controller.recvs_complete_, (uint32_t) controller.recvs_posted_);
   }
 
-  // clean up the pinned memory buffers, first scaan them to make sure all contain
+  // clean up the pinned memory buffers, first scan them to make sure all contain
   // the expected tag value - the send buffers were filled by us with tags, the
   // recv buffers should have been filled by the sending rank with the same tag
   for (auto& buf : send_recv_buffers)
