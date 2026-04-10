@@ -412,6 +412,10 @@ public:
     libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> recvs_posted_;
     libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> sends_complete_;
     libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> recvs_complete_;
+    libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> reads_posted_;
+    libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> writes_posted_;
+    libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> reads_complete_;
+    libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> writes_complete_;
 
     void finvoke(char const* msg, char const* err, int ret)
     {
@@ -440,6 +444,10 @@ public:
       , recvs_posted_(0)
       , sends_complete_(0)
       , recvs_complete_(0)
+      , reads_posted_(0)
+      , writes_posted_(0)
+      , reads_complete_(0)
+      , writes_complete_(0)
     {
     }
 
@@ -1193,8 +1201,8 @@ public:
       }
       else if (endpoint_type_ == endpoint_type::multiple) { return eps_->ep_tx_; }
       {
-        SPDLOG_DEBUG("{:20} {} {} {}", "get_tx_endpoint", (void*) (this), __func__,
-            "single/shared endpoint");
+        // SPDLOG_TRACE("{:20} {} {} {}", "get_tx_endpoint", (void*) (this), __func__,
+        //     "single/shared endpoint");
         // single : shared tx/rx endpoint
         return eps_->ep_rx_;
       }

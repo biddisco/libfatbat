@@ -33,7 +33,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   }
 
   // --------------------------------------------------------------------
-  void invoke_cb()
+  inline void invoke_cb()
   {
     SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
     if (m_callback) m_callback(0, 0);
@@ -44,6 +44,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   inline int handle_cancelled()
   {
     SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    invoke_cb();
     return 1;
   }
 
@@ -52,6 +53,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   inline int handle_tagged_recv_completion_impl(void* user_data)
   {
     SPDLOG_SCOPE("{} {} user_data {}", (void*) (this), __func__, user_data);
+    invoke_cb();
     return 1;
   }
 
@@ -60,6 +62,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   inline int handle_tagged_send_completion_impl(void* user_data)
   {
     SPDLOG_SCOPE("{} {} user_data {}", (void*) (this), __func__, user_data);
+    invoke_cb();
     return 1;
   }
 
@@ -68,6 +71,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   inline int handle_rma_read_completion_impl()
   {
     SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    invoke_cb();
     return 1;
   }
 
@@ -76,6 +80,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   inline int handle_rma_write_completion_impl()
   {
     SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    invoke_cb();
     return 1;
   }
 };

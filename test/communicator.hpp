@@ -111,8 +111,12 @@ struct communicator
   }
 
   // --------------------------------------------------------------------
-  ~communicator() { clear_callback_queues(); }
+  ~communicator()
+  {    //
+    clear_callback_queues();
+  }
 
+  // --------------------------------------------------------------------
   inline operation_context* make_operation_context(request_callback_type&& cb)
   {
     operation_context* request;
@@ -205,9 +209,10 @@ struct communicator
   void read_remote(region_type const& recv_region, std::size_t size, fi_addr_t rem_rank_,
       void* remote_addr, uint64_t remote_key, operation_context* ctxt)
   {
+    m_controller->reads_posted_++;
     SPDLOG_DEBUG(
-        "{:20} {:02} {} context {:p} rx endpoint {:p} size {} rem_addr {:p} rem_key {:#08x}",
-        "read_remote", rem_rank_, recv_region, (void*) (ctxt), (void*) (m_rx_endpoint.get_ep()),
+        "{:20} {:02} {} context {:p} rx endpoint {:p} size {:#10x} rem_addr {:p} rem_key {:#08x}",
+        "read_remote", rem_rank_, recv_region, (void*) (ctxt), (void*) (m_tx_endpoint.get_ep()),
         size, remote_addr, remote_key);
     execute_fi_function(fi_read, "fi_read", m_tx_endpoint.get_ep(), recv_region.get_address(), size,
         recv_region.get_local_key(), rem_rank_, (uint64_t) (remote_addr), remote_key, ctxt);
@@ -219,13 +224,13 @@ struct communicator
   {
     SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
 
-#if libfatbat_ENABLE_DEVICE
+#if LIBFATBAT_ENABLE_DEVICE
     auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
 #else
     auto const& reg = ptr.handle();
 #endif
 
-    // construct request which is also an operation context
+    if (cb) { cb = std::bind(std::move(cb), dst, 0); }
     auto request = make_operation_context(std::move(cb));
 
     read_remote(reg, size, fi_addr_t(dst), remote_addr, remote_key, request);
@@ -239,7 +244,7 @@ struct communicator
     SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
     std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
 
-#if libfatbat_ENABLE_DEVICE
+#if LIBFATBAT_ENABLE_DEVICE
     auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
 #else
     auto const& reg = ptr.handle();
@@ -259,6 +264,7 @@ struct communicator
       return nullptr;
     }
 
+    if (cb) { cb = std::bind(std::move(cb), dst, tag); }
     // construct request which is also an operation context
     auto request = make_operation_context(std::move(cb));
 
@@ -266,7 +272,7 @@ struct communicator
                  "size {:06} op_ctx {:p} req {:p}",
         "send", rank(), dst, reg, tag, stag, (void*) (reg.get_address()), size, reg.get_size(),
         (void*) request, (void*) request);
-#if libfatbat_ENABLE_DEVICE
+#if LIBFATBAT_ENABLE_DEVICE
     if (!ptr.on_device())
     {
       LF_DEB(com_deb<9>,
@@ -280,20 +286,18 @@ struct communicator
 
   // --------------------------------------------------------------------
   operation_context* recv(memory_context::heap_type::pointer& ptr, std::size_t size, rank_type src,
-      tag_type tag, std::function<void(rank_type, tag_type)>&& cb)
+      tag_type tag, request_callback_type&& cb)
   {
     SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
     std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
 
-#if libfatbat_ENABLE_DEVICE
+#if LIBFATBAT_ENABLE_DEVICE
     auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
 #else
     auto const& reg = ptr.handle();
 #endif
 
     m_controller->recvs_posted_++;
-
-    // construct request which is also an operation context
     auto request = make_operation_context(std::move(cb));
 
     SPDLOG_DEBUG("{:20} thisrank {} src/dst {} tag {} stag {:#08x} addr {:p} size {:#06x} reg "
@@ -301,7 +305,7 @@ struct communicator
         "recv", rank(), src, tag, stag, (void*) (reg.get_address()), size, reg.get_size(),
         (void*) request, (void*) request);
 
-#if libfatbat_ENABLE_DEVICE
+#if LIBFATBAT_ENABLE_DEVICE
     if (!ptr.on_device())
     {
       LF_DEB(com_deb<9>,
@@ -321,6 +325,7 @@ struct communicator
     clear_callback_queues();
   }
 
+  // --------------------------------------------------------------------
   void clear_callback_queues()
   {
     // work through ready callbacks, which were pushed to the queue

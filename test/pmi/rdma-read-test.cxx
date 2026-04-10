@@ -59,10 +59,9 @@ int main(int argc, char** argv)
   controller.initialize(HAVE_LIBFATBAT_PROVIDER, rank == 0, size, nthreads);
   pmi.boot_PMI(&controller);
 
-  // we can keep pmi alive to use a fence at the end in case one rank fisnishes before others
+  // we can keep pmi alive to use a fence at the end in case one rank finishes before others
   // it seems to be ok if we shut down pmi here
   pmi.fence();
-  pmi.finalize_PMI();
 
   if (size < 2)
   {
@@ -85,9 +84,6 @@ int main(int argc, char** argv)
   poller_guard pg(&controller, rank);
 
   // -------------------------------------------------
-  // test sending and receiving messages of increasing size
-  std::vector<std::tuple<uint32_t, memory_context::heap_type::pointer>> send_recv_buffers;
-
   // our test will exchange RMA messages of this size
   constexpr int32_t message_size = 1024 * 1024 * 16;    // 16 MB
 
@@ -95,130 +91,147 @@ int main(int argc, char** argv)
   struct rma_key_info
   {
     void* address;
-    uint64_t key;
+    uint64_t remote_key;
     uint64_t length;
   };
   // allocate space for an RMA key from each rank and space to read remote data into
   std::vector<memory_context::heap_type::pointer> rma_read_keys;
   std::vector<memory_context::heap_type::pointer> rma_read_buffers;
   // allocate buffers we still store data in and each other rank will read from
-  std::vector<memory_context::heap_type::pointer> data_keys;
-  std::vector<memory_context::heap_type::pointer> data_buffers;
+  std::vector<memory_context::heap_type::pointer> local_data_keys;
+  std::vector<memory_context::heap_type::pointer> local_data_buffers;
 
-  // for each rank, allocate RMA buffers
-  for (int i = 0; i < size; i++)
   {
-    // we will read data into these buffers from some other rank
-    auto remote_read_buffer = heap.allocate(message_size, 0);
-    rma_read_buffers.push_back(remote_read_buffer);
-
-    // to perform reads, we need to get keys from each rank, we will store them in here
-    auto remote_key_buffer = heap.allocate(sizeof(rma_key_info), 0);
-    rma_read_keys.push_back(remote_key_buffer);
-
-    // we will fill these buffers with data and others will read from them
-    auto local_data_buffer = heap.allocate(message_size, 0);
-    // fill the buffer with a pattern based on our rank
-    std::fill((char*) (local_data_buffer.get()), (char*) (local_data_buffer.get()) + message_size,
-        static_cast<uint8_t>(rank));
-    data_buffers.push_back(local_data_buffer);
-
-    // these are the buffers we will use to share our RMA key info with other ranks
-    auto data_key = heap.allocate(sizeof(rma_key_info), 0);
-    rma_key_info info{.address = data_key.handle().get_address(),
-        .key = (uint64_t) data_key.handle().get_local_key(),
-        .length = sizeof(rma_key_info)};
-    std::memcpy(data_key.get(), &info, sizeof(rma_key_info));
-    data_keys.push_back(data_key);
-  }
-
-  // for each rank, exchange an RMA key
-  for (int r = 0; r < size; ++r)
-  {
-    if (rank != r)
+    // --------------------------------------------------
+    // for each rank, allocate RMA buffers
+    // --------------------------------------------------
+    for (int i = 0; i < size; i++)
     {
-      SPDLOG_TRACE("{:20} rank {} from rank {}", "receiving RMA key info", rank, r);
-      comm.recv(rma_read_keys[r], sizeof(rma_key_info), r, rank, nullptr);
+      // this is just a flat array of memory for reading large data blocks into
+      auto remote_read_buffer = heap.allocate(message_size, 0);
+      rma_read_buffers.push_back(remote_read_buffer);
 
-      SPDLOG_TRACE("{:20} rank {} to rank {}", "sending RMA key info", rank, r);
-      comm.send(rma_read_keys[rank], sizeof(rma_key_info), r, rank, nullptr);
+      // to perform reads, we need to get keys from each rank, we will store them in here
+      // allocate a buffer of size rma_key_info for each rank to receive their RMA key info into,
+      // and we will also use those buffers to send our RMA key info to other ranks
+      auto remote_key_buffer = heap.allocate(sizeof(rma_key_info), 0);
+      rma_read_keys.push_back(remote_key_buffer);
+
+      // allocate a flat block of memory (per rank) that others will read from
+      auto local_data_buffer = heap.allocate(message_size, 0);
+      // fill the buffer with a pattern based on our rank
+      std::fill((char*) (local_data_buffer.get()), (char*) (local_data_buffer.get()) + message_size,
+          static_cast<uint8_t>(rank));
+      local_data_buffers.push_back(local_data_buffer);
+
+      // allocate buffers for rma keys that others can use to read with
+      auto local_data_key = heap.allocate(sizeof(rma_key_info), 0);
+      rma_key_info info{
+          .address = local_data_buffer.handle().get_address(),                     //
+          .remote_key = (uint64_t) local_data_buffer.handle().get_remote_key(),    //
+          .length = message_size                                                   //
+      };
+      std::memcpy(local_data_key.get(), &info, sizeof(rma_key_info));
+      local_data_keys.push_back(local_data_key);
     }
-  }
+    SPDLOG_INFO("rank {} initialized RMA buffers", rank);
 
-  std::uint64_t base_tag = 0x0000'0000;
-  for (std::size_t iterations = 0; iterations < 1; ++iterations)
-  {
-    auto send_buffer = heap.allocate(message_size, 0);
-    auto recv_buffer = heap.allocate(message_size, 0);
-
-    std::uint64_t tag = base_tag + iterations;
-    // store those buffers so we can delete them later
-    send_recv_buffers.push_back(std::make_pair(tag, send_buffer));
-    send_recv_buffers.push_back(std::make_pair(tag, recv_buffer));
-
-    // Fill send buffer with pattern based on tag
-    std::fill((char*) (send_buffer.get()), (char*) (send_buffer.get()) + message_size,
-        static_cast<uint8_t>(tag));
-    // Fill recv buffer with known invalid pattern
-    std::fill((char*) (recv_buffer.get()), (char*) (recv_buffer.get()) + message_size,
-        static_cast<uint8_t>(0xff));
-
-    // for each rank, do a send/recv
+    // --------------------------------------------------
+    // for each rank, exchange an RMA key
+    // --------------------------------------------------
     for (int r = 0; r < size; ++r)
     {
-      if (rank != r)    // we don't send/recv to ourself
+      if (rank != r)
       {
-        SPDLOG_TRACE("{:20} of size {:#06x} rank {} from rank {} tag {}", "receiving message",
-            message_size, rank, r, tag);
+        // receive an rma key from the other rank,
+        SPDLOG_TRACE("{:20} rank {} from rank {}", "receiving RMA key info", rank, r);
+        comm.recv(rma_read_keys[r], sizeof(rma_key_info), r, r, nullptr);
 
-        comm.recv(recv_buffer, message_size, r, tag, nullptr);
-        SPDLOG_TRACE("{:20} of size {:#06x} rank {} to rank {} tag {}", "sending message",
-            message_size, rank, r, tag);
-        comm.send(send_buffer, message_size, r, tag, nullptr);
-      }
-      controller.poll_for_work_completions(nullptr);
-    }
-    controller.poll_for_work_completions(nullptr);
-    SPDLOG_DEBUG("rank {} sends: {}/{}, recvs: {}/{}", rank,    //
-        (uint32_t) controller.sends_complete_, (uint32_t) controller.sends_posted_,
-        (uint32_t) controller.recvs_complete_, (uint32_t) controller.recvs_posted_);
-  }
-
-  while (controller.sends_complete_ < controller.sends_posted_ ||
-      controller.recvs_complete_ < controller.recvs_posted_)
-  {
-    controller.poll_for_work_completions(nullptr);
-    SPDLOG_TRACE("rank {} sends: {}/{}, recvs: {}/{}", rank,    //
-        (uint32_t) controller.sends_complete_, (uint32_t) controller.sends_posted_,
-        (uint32_t) controller.recvs_complete_, (uint32_t) controller.recvs_posted_);
-  }
-
-  // clean up the pinned memory buffers, first scan them to make sure all contain
-  // the expected tag value - the send buffers were filled by us with tags, the
-  // recv buffers should have been filled by the sending rank with the same tag
-  for (auto& buf : send_recv_buffers)
-  {
-    auto tag = std::get<0>(buf);
-    auto buffer = std::get<1>(buf);
-    auto buffer_ptr = (uint8_t*) (buffer.get());
-    SPDLOG_DEBUG("rank {} validating buffer with tag {}", rank, tag);
-    bool valid = true;
-    for (std::size_t i = 0; i < (1 << tag); ++i)
-    {
-      if (buffer_ptr[i] != static_cast<uint8_t>(tag))
-      {
-        valid = false;
-        break;
+        // and send them our rma key (in any order since we are using tags to match messages)
+        SPDLOG_TRACE("{:20} rank {} to rank {}", "sending RMA key info", rank, r);
+        comm.send(local_data_keys[r], sizeof(rma_key_info), r, rank, nullptr);
       }
     }
-    if (!valid)
+
+    // --------------------------------------------------
+    // complete the key exchange by polling for completions until we have received all keys and sent all keys
+    // --------------------------------------------------
+    while ((uint32_t) controller.sends_complete_ < controller.sends_posted_ ||
+        (uint32_t) controller.recvs_complete_ < controller.recvs_posted_)
     {
-      SPDLOG_ERROR("rank {} buffer validation failed for tag {}", rank, tag);
-      throw std::runtime_error("buffer validation failed");
+      std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
-    SPDLOG_DEBUG("rank {} freeing buffer with tag {}", rank, tag);
-    heap.free(std::get<1>(buf));
+    SPDLOG_INFO("rank {} exchanged RMA keys", rank);
+    pmi.fence();
+
+    // create a lambda we can use as a callback function that verifies the data in the rma read buffer is correct
+    auto verify_rma_read = [rank, &rma_read_buffers, message_size](rank_type src, tag_type tag) {
+      SPDLOG_DEBUG("{:20} rank {} received RMA read completion callback from rank {} with tag {}",
+          "RMA read completion callback", rank, src, tag);
+
+      // verify the RMA read buffer content: every byte must match the source rank
+      auto* data =
+          static_cast<uint8_t const*>(rma_read_buffers[static_cast<std::size_t>(src)].get());
+      for (std::size_t i = 0; i < static_cast<std::size_t>(message_size); ++i)
+      {
+        if (data[i] != static_cast<uint8_t>(src))
+        {
+          SPDLOG_ERROR("rank {} RMA validation failed: src {} index {} value {} expected {}", rank,
+              src, i, data[i], static_cast<uint8_t>(src));
+          throw std::runtime_error("RMA buffer validation failed");
+        }
+      }
+    };
+
+    // --------------------------------------------------
+    // do the RMA reads, we will post them all and then wait for completions,
+    // and we will do this in a loop to check that we can reuse keys and buffers
+    // --------------------------------------------------
+    std::uint64_t base_tag = 0x0000'0000;
+    for (std::size_t iterations = 0; iterations < 2; ++iterations)
+    {
+      // for each rank, do an rma read
+      for (int r = 0; r < size; ++r)
+      {
+        if (rank != r)    // we don't read from ourselves
+        {
+          auto remote_key_info = static_cast<rma_key_info*>(rma_read_keys[r].get());
+          // since we are not using FI_MR_VIRT_ADDR we use an offset of 0 for the remote address
+          // and rely on the remote key to contain the base address, this is more portable across providers
+          auto address = nullptr;    // remote_key_info->address;
+          auto key = remote_key_info->remote_key;
+          auto length = remote_key_info->length;
+          SPDLOG_INFO("rank {} reading from rank {} with address {:p} key {:#08x} length {:#10x}",
+              rank, r, address, key, length);
+          if (length != message_size)
+          {
+            SPDLOG_ERROR(
+                "rank {} received invalid RMA key info length {} from rank {}", rank, length, r);
+            throw std::runtime_error("invalid RMA key info length");
+          }
+          assert(message_size == length);
+          comm.read(rma_read_buffers[r], message_size, r, address, key, verify_rma_read);
+        }
+      }
+
+      // --------------------------------------------------
+      //
+      // --------------------------------------------------
+      while ((uint32_t) controller.reads_complete_ < controller.reads_posted_)
+      {
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
+      }
+      SPDLOG_INFO("rank {} read RMA buffers", rank);
+    }
   }
+  pmi.fence();
+  pmi.finalize_PMI();
+
+  // clean up the pinned memory buffers
+  for (auto& buf : rma_read_keys) { heap.free(buf); }
+  for (auto& buf : rma_read_buffers) { heap.free(buf); }
+  for (auto& buf : local_data_keys) { heap.free(buf); }
+  for (auto& buf : local_data_buffers) { heap.free(buf); }
 
   return 0;
 }

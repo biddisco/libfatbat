@@ -150,7 +150,7 @@ int main(int argc, char** argv)
       while ((uint32_t) controller.sends_complete_ < sends_target ||
           (uint32_t) controller.recvs_complete_ < recvs_target)
       {
-        std::this_thread::sleep_for(std::chrono::microseconds(50));
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
       }
 
       pmi.fence();

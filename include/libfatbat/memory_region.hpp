@@ -125,7 +125,7 @@ struct fi_mr_attr {
     // Default registration flags for this provider
     static inline constexpr int access_flags()
     {
-      return FI_READ | FI_WRITE | FI_RECV | FI_SEND /*| FI_REMOTE_READ | FI_REMOTE_WRITE*/;
+      return FI_READ | FI_WRITE | FI_RECV | FI_SEND | FI_REMOTE_READ | FI_REMOTE_WRITE;
     }
 
     // Get the local descriptor of the memory region.

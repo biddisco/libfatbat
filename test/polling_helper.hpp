@@ -31,9 +31,11 @@ inline std::thread spawn_poll_thread(
       auto progress = ctrl->poll_for_work_completions(nullptr);
       if (progress.num() > 0)
       {
-        SPDLOG_DEBUG("{:20} rank {}: sends: {}/{}, recvs: {}/{}", "Polling loop", rank,
-            (uint32_t) ctrl->sends_complete_, (uint32_t) ctrl->sends_posted_,
-            (uint32_t) ctrl->recvs_complete_, (uint32_t) ctrl->recvs_posted_);
+        SPDLOG_DEBUG("{:20} rank {}: sends: {}/{}, recvs: {}/{}, reads: {}/{}, writes: {}/{},",
+            "Polling loop", rank, (uint32_t) ctrl->sends_complete_, (uint32_t) ctrl->sends_posted_,
+            (uint32_t) ctrl->recvs_complete_, (uint32_t) ctrl->recvs_posted_,
+            (uint32_t) ctrl->reads_complete_, (uint32_t) ctrl->reads_posted_,
+            (uint32_t) ctrl->writes_complete_, (uint32_t) ctrl->writes_posted_);
       }
     }
     SPDLOG_DEBUG("{:20} rank {}", "Polling stopped", rank);

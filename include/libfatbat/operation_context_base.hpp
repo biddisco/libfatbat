@@ -13,6 +13,7 @@
 //
 #include <rdma/fi_eq.h>
 //
+#include "libfatbat/fabric_error.hpp"
 #include "libfatbat/logging.hpp"
 #include "libfatbat_defines.hpp"
 
@@ -41,7 +42,11 @@ public:
     {
       static_cast<Derived*>(this)->handle_error_impl(err);
     }
-    void handle_error_impl(struct fi_cq_err_entry& /*err*/) { std::terminate(); }
+    void handle_error_impl(struct fi_cq_err_entry& err)
+    {
+      // throw libfatbat::fabric_error(err.prov_errno, "Unhandled error in operation context");
+      // std::terminate();
+    }
 
     void handle_cancelled() { static_cast<Derived*>(this)->handle_cancelled_impl(); }
     void handle_cancelled_impl() { std::terminate(); }
@@ -74,11 +79,11 @@ public:
     }
     int handle_tagged_recv_completion_impl(bool /*threadlocal*/) { return 0; }
 
-    void handle_rma_read_completion()
+    int handle_rma_read_completion()
     {
-      static_cast<Derived*>(this)->handle_rma_read_completion_impl();
+      return static_cast<Derived*>(this)->handle_rma_read_completion_impl();
     }
-    void handle_rma_read_completion_impl() {}
+    int handle_rma_read_completion_impl() { return 0; }
 
     // unknown sender = new connection (not needed when using pmi/mpi/other connection setup)
     template <typename Controller>
@@ -86,6 +91,7 @@ public:
     {
       return static_cast<Derived*>(this)->handle_new_connection_impl(ctrl, len);
     }
+
     template <typename Controller>
     int handle_new_connection_impl(Controller*, uint64_t)
     {

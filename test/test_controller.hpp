@@ -98,19 +98,26 @@ class test_controller : public libfatbat::controller_base<test_controller>
         if ((e.flags & (FI_MSG | FI_SEND | FI_TAGGED)) != 0)
         {
           SPDLOG_ERROR(
-              "{:20} for FI_SEND, len {:#06x}, context {:p}, code {:03}, flags {:016b}, error {}",
+              "{:20} for FI_SEND, len {:#010x}, context {:p}, code {:03}, flags {:016b}, error {}",
               "txcq FI_EAVAIL", static_cast<unsigned long>(e.len), (void*) (e.op_context), e.err,
               e.flags, fi_cq_strerror(tx_cq, e.prov_errno, e.err_data, (char*) e.buf, e.len));
         }
         else if ((e.flags & FI_RMA) != 0)
         {
           SPDLOG_ERROR(
-              "{:20} for FI_RMA, len {:#06x}, context {:p}, code {:03}, flags {:016b}, error {}",
+              "{:20} for FI_RMA, len {:#010x}, context {:p}, code {:03}, flags {:016b}, error {}",
+              "txcq FI_EAVAIL", static_cast<unsigned long>(e.len), (void*) (e.op_context), e.err,
+              e.flags, fi_cq_strerror(tx_cq, e.prov_errno, e.err_data, (char*) e.buf, e.len));
+        }
+        else if ((e.flags & FI_READ) != 0)
+        {
+          SPDLOG_ERROR(
+              "{:20} for FI_READ, len {:#010x}, context {:p}, code {:03}, flags {:016b}, error {}",
               "txcq FI_EAVAIL", static_cast<unsigned long>(e.len), (void*) (e.op_context), e.err,
               e.flags, fi_cq_strerror(tx_cq, e.prov_errno, e.err_data, (char*) e.buf, e.len));
         }
         operation_context* handler = reinterpret_cast<operation_context*>(e.op_context);
-        handler->handle_error(e);
+        if (handler) handler->handle_error(e);
         return 0;
       }
     }
@@ -123,18 +130,34 @@ class test_controller : public libfatbat::controller_base<test_controller>
       int processed = 0;
       for (int i = 0; i < ret; ++i)
       {
-        ++sends_complete_;
-        SPDLOG_DEBUG("{:20} {:02}, txcq_flags {}, ({:03}), context {:p}, length {:#06x}",
+        SPDLOG_DEBUG("{:20} {:02}, txcq_flags {}, ({:03}), context {:p}, length {:#10x}",
             "Completion", i,
             fi_tostr_r(buf.data(), buf.size(), &entry[i].flags, FI_TYPE_CQ_EVENT_FLAGS),
             entry[i].flags, (void*) (entry[i].op_context), entry[i].len);
         if ((entry[i].flags & (FI_TAGGED | FI_SEND | FI_MSG)) != 0)
         {
-          SPDLOG_DEBUG("{:20} {:02}, txcq tagged send completion, context {:p}", "Completion", i,
+          ++sends_complete_;
+          SPDLOG_DEBUG("{:20} {:02}, txcq tagged SEND completion, context {:p}", "Completion", i,
               (void*) (entry[i].op_context));
 
           operation_context* handler = reinterpret_cast<operation_context*>(entry[i].op_context);
           processed += handler->handle_tagged_send_completion(user_data);
+        }
+        else if (entry[i].flags == (FI_READ | FI_RMA))
+        {
+          ++reads_complete_;
+          SPDLOG_DEBUG("{:20} Received txcq READ completion, context {:p}", "Completion",
+              (void*) (entry[i].op_context));
+          operation_context* handler = reinterpret_cast<operation_context*>(entry[i].op_context);
+          processed += handler->handle_rma_read_completion();
+        }
+        else if (entry[i].flags == FI_RMA)
+        {
+          ++reads_complete_;
+          SPDLOG_DEBUG("{:20} Received txcq RMA completion, context {:p}", "Completion",
+              (void*) (entry[i].op_context));
+          operation_context* handler = reinterpret_cast<operation_context*>(entry[i].op_context);
+          processed += handler->handle_rma_read_completion();
         }
         else
         {
@@ -193,7 +216,7 @@ class test_controller : public libfatbat::controller_base<test_controller>
         // from the manpage 'man 3 fi_cq_readerr'
         if (e.err == FI_ECANCELED)
         {
-          SPDLOG_DEBUG("{:20} {:02}, rxcq Cancelled, flags {:#06x}, len {:#06x}, context {:p}",
+          SPDLOG_DEBUG("{:20} {:02}, rxcq Cancelled, flags {:#06x}, len {:#010x}, context {:p}",
               "Completion", 0, e.flags, e.len, (void*) (e.op_context));
           // the request was cancelled, we can simply exit
           // as the canceller will have doone any cleanup needed
@@ -204,7 +227,7 @@ class test_controller : public libfatbat::controller_base<test_controller>
         else if (e.err != FI_SUCCESS)
         {
           SPDLOG_ERROR(
-              "{:20} {:02}, rxcq error, flags {:#06x}, len {:#06x}, context {:p}, error msg {}",
+              "{:20} {:02}, rxcq error, flags {:#06x}, len {:#010x}, context {:p}, error msg {}",
               "Completion", 0, e.flags, e.len, (void*) (e.op_context),
               fi_cq_strerror(rx_cq, e.prov_errno, e.err_data, (char*) e.buf, e.len));
         }
