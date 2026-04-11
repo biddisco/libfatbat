@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <thread>
+#include <vector>
 //
 #include "libfatbat/logging.hpp"
 //
@@ -47,20 +48,27 @@ inline std::thread spawn_poll_thread(
 struct poller_guard
 {
   std::atomic<bool> stop{false};
-  std::thread thread_;
+  std::vector<std::thread> threads_;
   std::size_t rank_ = 0;
 
-  explicit poller_guard(test_controller* ctx, std::size_t rank)
-    : thread_(spawn_poll_thread(ctx, stop, rank))
-    , rank_(rank)
+  explicit poller_guard(test_controller* ctx, std::size_t rank, std::size_t num_threads = 2)
+    : rank_(rank)
   {
+    threads_.reserve(num_threads);
+    for (std::size_t i = 0; i < num_threads; ++i)
+    {
+      threads_.emplace_back(spawn_poll_thread(ctx, stop, rank_));
+    }
   }
 
   ~poller_guard()
   {
-    SPDLOG_DEBUG("{:20} rank {}", "Polling stopping", rank_);
+    SPDLOG_DEBUG("{:20} rank {} ({} threads)", "Polling stopping", rank_, threads_.size());
     stop.store(true, std::memory_order_release);
-    if (thread_.joinable()) thread_.join();
-    SPDLOG_DEBUG("{:20} rank {}", "Polling stopped", rank_);
+    for (auto& t : threads_)
+    {
+      if (t.joinable()) t.join();
+    }
+    SPDLOG_DEBUG("{:20} rank {} ({} threads)", "Polling stopped", rank_, threads_.size());
   }
 };

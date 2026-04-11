@@ -27,8 +27,8 @@
 int main(int argc, char** argv)
 {
   // -------------------------------------------------
-  // define log level settings when enabled
 #if defined(SPDLOG_ACTIVE_LEVEL) && (SPDLOG_ACTIVE_LEVEL != SPDLOG_LEVEL_OFF)
+  // always include thread id in log output
   spdlog::set_pattern("[%^%-8l%$]%t| %v");
   spdlog::set_level(spdlog::level::trace);
 #endif
@@ -184,11 +184,11 @@ int main(int argc, char** argv)
     };
 
     // --------------------------------------------------
-    // do the RMA reads, we will post them all and then wait for completions,
-    // and we will do this in a loop to check that we can reuse keys and buffers
+    // do the RMA reads, strictly speaking this is racy as we can perform reads that might overlap with the threads
+    // that are checking for completions and invoking callbacks, but since we are only reading into the rma_read_buffers
+    // and the callbacks only read from those buffers after the read completes, this should be ok
     // --------------------------------------------------
-    std::uint64_t base_tag = 0x0000'0000;
-    for (std::size_t iterations = 0; iterations < 2; ++iterations)
+    for (std::size_t iterations = 0; iterations < 5; ++iterations)
     {
       // for each rank, do an rma read
       for (int r = 0; r < size; ++r)
@@ -198,7 +198,7 @@ int main(int argc, char** argv)
           auto remote_key_info = static_cast<rma_key_info*>(rma_read_keys[r].get());
           // since we are not using FI_MR_VIRT_ADDR we use an offset of 0 for the remote address
           // and rely on the remote key to contain the base address, this is more portable across providers
-          auto address = nullptr;    // remote_key_info->address;
+          auto address = nullptr;
           auto key = remote_key_info->remote_key;
           auto length = remote_key_info->length;
           SPDLOG_INFO("rank {} reading from rank {} with address {:p} key {:#08x} length {:#10x}",
