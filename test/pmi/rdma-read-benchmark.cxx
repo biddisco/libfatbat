@@ -12,11 +12,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <iomanip>
 #include <thread>
 #include <vector>
 //
 #include <boost/program_options.hpp>
+#include <fmt/format.h>
 #include <hwmalloc/heap.hpp>
 //
 #include "libfatbat/logging.hpp"
@@ -130,13 +130,11 @@ int main(int argc, char** argv)
 
   if (rank == 0)
   {
-    std::cout << "# rdma read benchmark\n";
-    std::cout << "# iterations=" << iterations << " min_shift=" << min_shift
-              << " max_shift=" << max_shift << " peers_per_rank=" << (size - 1) << "\n";
-    std::cout << std::left << std::setw(12) << "bytes" << std::setw(14) << "iters" << std::setw(14)
-              << "reads" << std::setw(14) << "time_ms" << std::setw(16) << "msg_rate_M/s"
-              << std::setw(22) << "agg_read_MB/s"
-              << "\n";
+    fmt::print("# rdma read benchmark\n");
+    fmt::print("# iterations={} min_shift={} max_shift={} peers_per_rank={}\n", iterations,
+        min_shift, max_shift, size - 1);
+    fmt::print("{:<12}{:<14}{:<14}{:<14}{:<16}{:<22}\n", "bytes", "iters", "reads", "time_ms",
+        "msg_rate_M/s", "agg_read_MB/s");
   }
 
   {
@@ -167,45 +165,59 @@ int main(int argc, char** argv)
       std::size_t const msg_size = (std::size_t{1} << bitshift);
       std::size_t const peers = size - 1;
       std::size_t const expected_reads = iterations * peers;
-
-      uint32_t const reads_complete_before = (uint32_t) controller.reads_complete_;
-      uint32_t const reads_posted_before = (uint32_t) controller.reads_posted_;
-
-      pmi.fence();
-      auto t0 = std::chrono::steady_clock::now();
-
-      std::size_t remaining = iterations;
+      std::size_t const warmup_iterations = 1;
       std::size_t const max_chunk = static_cast<std::size_t>(max_completions_array_limit_ / peers);
       std::size_t const chunk_limit = std::max<std::size_t>(1, max_chunk);
 
-      while (remaining > 0)
-      {
-        std::size_t const chunk = std::min(remaining, chunk_limit);
-        // Request contexts are cached per communicator on this path, so use bounded chunks
-        // with a fresh communicator instance to keep cache growth under control.
-        communicator comm_chunk(&controller, rank, size);
-        for (std::size_t i = 0; i < chunk; ++i)
+      auto post_read_iterations = [&](std::size_t num_iterations) {
+        std::size_t remaining = num_iterations;
+        while (remaining > 0)
         {
-          for (std::size_t r = 0; r < size; ++r)
+          std::size_t const chunk = std::min(remaining, chunk_limit);
+          // Request contexts are cached per communicator on this path, so use bounded chunks
+          // with a fresh communicator instance to keep cache growth under control.
+          communicator comm_chunk(&controller, rank, size);
+          for (std::size_t i = 0; i < chunk; ++i)
           {
-            if (r == rank) { continue; }
-
-            auto const* remote_key_info = static_cast<rma_key_info*>(rma_read_keys[r].get());
-            if (remote_key_info->length < msg_size)
+            for (std::size_t r = 0; r < size; ++r)
             {
-              SPDLOG_ERROR("rank {} remote key length {} from rank {} is smaller than msg_size {}",
-                  rank, remote_key_info->length, r, msg_size);
-              throw std::runtime_error("invalid RMA key length");
-            }
+              if (r == rank) { continue; }
 
-            // Use zero offset without FI_MR_VIRT_ADDR and rely on remote key base.
-            void* remote_addr = nullptr;
-            comm_chunk.read(rma_read_buffers[r], msg_size, static_cast<rank_type>(r), remote_addr,
-                remote_key_info->remote_key, nullptr);
+              auto const* remote_key_info = static_cast<rma_key_info*>(rma_read_keys[r].get());
+              if (remote_key_info->length < msg_size)
+              {
+                SPDLOG_ERROR(
+                    "rank {} remote key length {} from rank {} is smaller than msg_size {}", rank,
+                    remote_key_info->length, r, msg_size);
+                throw std::runtime_error("invalid RMA key length");
+              }
+
+              // Use zero offset without FI_MR_VIRT_ADDR and rely on remote key base.
+              void* remote_addr = nullptr;
+              comm_chunk.read(rma_read_buffers[r], msg_size, static_cast<rank_type>(r), remote_addr,
+                  remote_key_info->remote_key, nullptr);
+            }
           }
+          remaining -= chunk;
         }
-        remaining -= chunk;
+      };
+
+      pmi.fence();
+      uint32_t const warmup_reads_posted_before = (uint32_t) controller.reads_posted_;
+      post_read_iterations(warmup_iterations);
+
+      uint32_t const warmup_reads_target =
+          warmup_reads_posted_before + static_cast<uint32_t>(warmup_iterations * peers);
+      while ((uint32_t) controller.reads_complete_ < warmup_reads_target)
+      {
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
       }
+
+      pmi.fence();
+      uint32_t const reads_complete_before = (uint32_t) controller.reads_complete_;
+      uint32_t const reads_posted_before = (uint32_t) controller.reads_posted_;
+      auto t0 = std::chrono::steady_clock::now();
+      post_read_iterations(iterations);
 
       uint32_t const reads_target = reads_posted_before + static_cast<uint32_t>(expected_reads);
       while ((uint32_t) controller.reads_complete_ < reads_target)
@@ -219,19 +231,16 @@ int main(int argc, char** argv)
       auto const elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(t1 - t0);
       double const elapsed_s = elapsed.count();
       double const elapsed_ms = elapsed_s * 1.0e3;
-      double const total_reads = static_cast<double>(expected_reads) * static_cast<double>(size);
+      std::size_t const total_reads = expected_reads * size;
       double const aggregate_bytes = static_cast<double>(msg_size) *
           static_cast<double>(expected_reads) * static_cast<double>(size);
       double const agg_read_mbps = aggregate_bytes / elapsed_s / 1.0e6;
-      double const msg_rate_mps = total_reads / elapsed_s / 1.0e6;
+      double const msg_rate_mps = static_cast<double>(total_reads) / elapsed_s / 1.0e6;
 
       if (rank == 0)
       {
-        std::cout << std::left << std::setw(12) << msg_size << std::setw(14) << iterations
-                  << std::setw(14) << total_reads << std::setw(14) << std::fixed
-                  << std::setprecision(3) << elapsed_ms << std::setw(16) << std::fixed
-                  << std::setprecision(3) << msg_rate_mps << std::setw(22) << std::fixed
-                  << std::setprecision(3) << agg_read_mbps << "\n";
+        fmt::print("{:<12}{:<14}{:<14}{:<14.3f}{:<16.3f}{:<22.3f}\n", msg_size, iterations,
+            total_reads, elapsed_ms, msg_rate_mps, agg_read_mbps);
       }
 
       uint32_t const reads_done = (uint32_t) controller.reads_complete_ - reads_complete_before;

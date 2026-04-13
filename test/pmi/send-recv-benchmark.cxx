@@ -10,10 +10,10 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <iomanip>
 #include <thread>
 //
 #include <boost/program_options.hpp>
+#include <fmt/format.h>
 #include <hwmalloc/heap.hpp>
 //
 #include "libfatbat/logging.hpp"
@@ -94,23 +94,23 @@ int main(int argc, char** argv)
 
   if (rank == 0)
   {
-    std::cout << "# send/recv bandwidth benchmark\n";
-    std::cout << "# iterations=" << iterations << " min_shift=" << min_shift
-              << " max_shift=" << max_shift << "\n";
-    std::cout << std::left << std::setw(12) << "bytes" << std::setw(14) << "iters" << std::setw(14)
-              << "time_ms" << std::setw(16) << "msg_rate_M/s" << std::setw(20) << "one_way_MB/s"
-              << std::setw(20) << "bi_dir_MB/s"
-              << "\n";
+    fmt::print("# send/recv bandwidth benchmark\n");
+    fmt::print("# iterations={} min_shift={} max_shift={} warmup_iterations={}\n", iterations,
+        min_shift, max_shift, 1);
+    fmt::print("{:<12}{:<14}{:<14}{:<16}{:<20}{:<20}\n", "bytes", "iters", "time_ms",
+        "msg_rate_M/s", "one_way_MB/s", "bi_dir_MB/s");
   }
 
   {
-    poller_guard pg(&controller, rank);
+    poller_guard pg(&controller, rank, 2);
 
     for (std::size_t bitshift = min_shift; bitshift <= max_shift; ++bitshift)
     {
       uint32_t const base_tag = static_cast<uint32_t>(bitshift);
       std::size_t const msg_size = (std::size_t{1} << bitshift);
       rank_type const peer = static_cast<rank_type>(1 - rank);
+      std::size_t const warmup_iterations = 1;
+      std::size_t const max_chunk = static_cast<std::size_t>(max_completions_array_limit_);
 
       auto send_buffer = heap.allocate(msg_size, 0);
       auto recv_buffer = heap.allocate(msg_size, 0);
@@ -120,30 +120,46 @@ int main(int argc, char** argv)
       std::fill((char*) (recv_buffer.get()), (char*) (recv_buffer.get()) + msg_size,
           static_cast<uint8_t>(0xff));
 
+      auto post_send_recv_iterations = [&](std::size_t num_iterations) {
+        // The communicator request cache is finite and not recycled on this path,
+        // so run in bounded chunks using a fresh communicator per chunk.
+        std::size_t remaining = num_iterations;
+        while (remaining > 0)
+        {
+          std::size_t const chunk = std::min(remaining, max_chunk);
+          communicator comm(&controller, rank, size);
+          for (std::size_t i = 0; i < chunk; ++i)
+          {
+            uint32_t const tag = base_tag;
+            comm.recv(recv_buffer, msg_size, fi_addr_t(peer), tag, nullptr);
+            comm.send(send_buffer, msg_size, fi_addr_t(peer), tag, nullptr);
+          }
+          remaining -= chunk;
+        }
+      };
+
+      pmi.fence();
+      uint32_t const warmup_sends_posted_before = (uint32_t) controller.sends_posted_;
+      uint32_t const warmup_recvs_posted_before = (uint32_t) controller.recvs_posted_;
+      post_send_recv_iterations(warmup_iterations);
+
+      uint32_t const warmup_sends_target =
+          warmup_sends_posted_before + static_cast<uint32_t>(warmup_iterations);
+      uint32_t const warmup_recvs_target =
+          warmup_recvs_posted_before + static_cast<uint32_t>(warmup_iterations);
+      while ((uint32_t) controller.sends_complete_ < warmup_sends_target ||
+          (uint32_t) controller.recvs_complete_ < warmup_recvs_target)
+      {
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
+      }
+
+      pmi.fence();
       uint32_t const sends_complete_before = (uint32_t) controller.sends_complete_;
       uint32_t const sends_posted_before = (uint32_t) controller.sends_posted_;
       uint32_t const recvs_complete_before = (uint32_t) controller.recvs_complete_;
       uint32_t const recvs_posted_before = (uint32_t) controller.recvs_posted_;
-
-      pmi.fence();
       auto t0 = std::chrono::steady_clock::now();
-
-      // The test communicator's request cache is finite and not recycled on this path,
-      // so run in bounded chunks to avoid exhausting it.
-      std::size_t remaining = iterations;
-      std::size_t const max_chunk = static_cast<std::size_t>(max_completions_array_limit_);
-      while (remaining > 0)
-      {
-        std::size_t const chunk = std::min(remaining, max_chunk);
-        communicator comm(&controller, rank, size);
-        for (std::size_t i = 0; i < chunk; ++i)
-        {
-          uint32_t const tag = base_tag;
-          comm.recv(recv_buffer, msg_size, fi_addr_t(peer), tag, nullptr);
-          comm.send(send_buffer, msg_size, fi_addr_t(peer), tag, nullptr);
-        }
-        remaining -= chunk;
-      }
+      post_send_recv_iterations(iterations);
 
       uint32_t const sends_target = sends_posted_before + static_cast<uint32_t>(iterations);
       uint32_t const recvs_target = recvs_posted_before + static_cast<uint32_t>(iterations);
@@ -167,11 +183,8 @@ int main(int argc, char** argv)
 
       if (rank == 0)
       {
-        std::cout << std::left << std::setw(12) << msg_size << std::setw(14) << iterations
-                  << std::setw(14) << std::fixed << std::setprecision(3) << elapsed_ms
-                  << std::setw(16) << std::fixed << std::setprecision(3) << msg_rate_mps
-                  << std::setw(20) << std::fixed << std::setprecision(3) << one_way_mbps
-                  << std::setw(20) << std::fixed << std::setprecision(3) << bi_dir_mbps << "\n";
+        fmt::print("{:<12}{:<14}{:<14.3f}{:<16.3f}{:<20.3f}{:<20.3f}\n", msg_size, iterations,
+            elapsed_ms, msg_rate_mps, one_way_mbps, bi_dir_mbps);
       }
 
       uint32_t const sends_done = (uint32_t) controller.sends_complete_ - sends_complete_before;
