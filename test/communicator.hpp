@@ -18,8 +18,8 @@
 #include "libfatbat/controller_base.hpp"
 #include "libfatbat/memory_region.hpp"
 //
+#include "controller.hpp"
 #include "operation_context.hpp"
-#include "test_controller.hpp"
 
 // --------------------------------------------------------------------
 // A convenience memory context to manage memory regions
@@ -69,8 +69,6 @@ inline memory_context::region_type register_memory(
 // --------------------------------------------------------------------
 // a lockfree queue to hold completions
 // --------------------------------------------------------------------
-constexpr uint64_t max_completions_array_limit_ = 256;
-
 struct communicator
 {
   //
@@ -79,6 +77,8 @@ struct communicator
 
   using callback_queue = boost::lockfree::queue<operation_context*,
       boost::lockfree::fixed_sized<false>, boost::lockfree::allocator<std::allocator<void>>>;
+
+  constexpr static std::size_t max_callback_queue_size_ = 256;
 
   public:
   test_controller* m_controller;
@@ -95,16 +95,16 @@ struct communicator
   // --------------------------------------------------------------------
   communicator(test_controller* controller, rank_type rank, rank_type size)
     : m_controller(controller)
-    , queue_cache(2 * max_completions_array_limit_)
-    , m_send_cb_queue(max_completions_array_limit_)
-    , m_recv_cb_queue(max_completions_array_limit_)
+    , queue_cache(2 * max_callback_queue_size_)
+    , m_send_cb_queue(max_callback_queue_size_)
+    , m_recv_cb_queue(max_callback_queue_size_)
     , m_rank(rank)
     , m_size(size)
   {
     m_tx_endpoint = m_controller->get_tx_endpoint();
     m_rx_endpoint = m_controller->get_rx_endpoint();
     // fill cache with empty request objects taken from the heap so that we can avoid allocations at runtime
-    for (int i = 0; i < 2 * max_completions_array_limit_; ++i)
+    for (int i = 0; i < 2 * max_callback_queue_size_; ++i)
     {
       queue_cache.push(new operation_context());
     }
@@ -275,8 +275,8 @@ struct communicator
 #if LIBFATBAT_ENABLE_DEVICE
     if (!ptr.on_device())
     {
-      LF_DEB(com_deb<9>,
-          debug(str<>("send region CRC32"), mem_crc32(reg.get_address(), size, "CRC32")));
+      SPDLOG_DEBUG("{:20} mem {}", "send region CRC32",
+          libfatbat::logging::mem_crc32(reg.get_address(), size));
     }
 #endif
 
@@ -308,8 +308,8 @@ struct communicator
 #if LIBFATBAT_ENABLE_DEVICE
     if (!ptr.on_device())
     {
-      LF_DEB(com_deb<9>,
-          debug(str<>("recv region CRC32"), mem_crc32(reg.get_address(), size, "CRC32")));
+      SPDLOG_DEBUG("{:20} mem {}", "recv region CRC32",
+          libfatbat::logging::mem_crc32(reg.get_address(), size));
     }
 #endif
 

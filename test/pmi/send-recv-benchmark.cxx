@@ -18,9 +18,10 @@
 //
 #include "libfatbat/logging.hpp"
 //
-#include "../communicator.hpp"
-#include "../polling_helper.hpp"
-#include "../test_controller.hpp"
+#include "communicator.hpp"
+#include "controller.hpp"
+#include "pmi_helper.hpp"
+#include "polling_helper.hpp"
 
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
@@ -110,7 +111,8 @@ int main(int argc, char** argv)
       std::size_t const msg_size = (std::size_t{1} << bitshift);
       rank_type const peer = static_cast<rank_type>(1 - rank);
       std::size_t const warmup_iterations = 1;
-      std::size_t const max_chunk = static_cast<std::size_t>(max_completions_array_limit_);
+      std::size_t const max_chunk =
+          static_cast<std::size_t>(communicator::max_callback_queue_size_);
 
       auto send_buffer = heap.allocate(msg_size, 0);
       auto recv_buffer = heap.allocate(msg_size, 0);

@@ -19,7 +19,6 @@
 //
 #include "libfatbat/fabric_error.hpp"
 #include "libfatbat/logging.hpp"
-#include "libfatbat_defines.hpp"
 
 #ifdef LIBFATBAT_ENABLE_DEVICE
 # include <hwmalloc/config.hpp>
@@ -232,7 +231,7 @@ struct fi_mr_attr {
     friend std::ostream& operator<<(std::ostream& os, memory_handle const& region)
     {
       (void) region;
-#ifdef FATBAT_LOGGING_ENABLED
+#ifdef LIBFATBAT_LOGGING_ENABLED
       os << fmt::format(
           "region {:p} fi_region {:p} address {:p} size {:#06x} loc key {} rem key {}",
           (void*) (&region), (void*) (region.region_), (void*) (region.address_), region.size_,
@@ -261,7 +260,7 @@ protected:
 
 }    // namespace libfatbat
 
-#ifdef FATBAT_LOGGING_ENABLED
+#ifdef LIBFATBAT_LOGGING_ENABLED
 template <>
 struct fmt::formatter<libfatbat::memory_handle> : fmt::ostream_formatter
 {
@@ -272,7 +271,7 @@ namespace libfatbat {
   // --------------------------------------------------------------------
   // Deregister the memory region.
   // returns 0 when successful, -1 otherwise
-  int memory_handle::deregister(void) const
+  inline int memory_handle::deregister(void) const
   {
     if (region_ /*&& !get_user_region()*/)
     {
@@ -388,7 +387,7 @@ namespace libfatbat {
     friend std::ostream& operator<<(std::ostream& os, memory_segment const& region)
     {
       (void) region;
-#ifdef FATBAT_LOGGING_ENABLED
+#ifdef LIBFATBAT_LOGGING_ENABLED
       os << *static_cast<memory_handle const*>(&region)
          << fmt::format("base_addr {}", (void*) (region.base_addr_));
 #endif

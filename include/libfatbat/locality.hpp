@@ -21,8 +21,8 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 //
-#include <libfatbat_defines.hpp>
 #include "libfatbat/logging.hpp"
+#include "libfatbat_defines.hpp"
 
 // Different providers use different address formats that we accommodate in our locality object.
 #ifdef HAVE_LIBFATBAT_GNI

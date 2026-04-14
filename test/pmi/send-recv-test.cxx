@@ -7,10 +7,10 @@
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
  */
-#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <numeric>
 #include <thread>
 //
 #include <boost/program_options.hpp>
@@ -18,9 +18,11 @@
 //
 #include "libfatbat/logging.hpp"
 //
-#include "../communicator.hpp"
-#include "../polling_helper.hpp"
-#include "../test_controller.hpp"
+#include "communicator.hpp"
+#include "controller.hpp"
+#include "pmi_helper.hpp"
+#include "polling_helper.hpp"
+#include "test_utils.hpp"
 
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
@@ -96,6 +98,7 @@ int main(int argc, char** argv)
 
       auto send_buffer = heap.allocate(msg_size, 0);
       auto recv_buffer = heap.allocate(msg_size, 0);
+
       // store those buffers so we can delete them later
       send_recv_buffers.push_back(std::make_pair(tag, send_buffer));
       send_recv_buffers.push_back(std::make_pair(tag, recv_buffer));
@@ -103,22 +106,31 @@ int main(int argc, char** argv)
       // Fill send buffer with pattern based on tag
       std::fill((char*) (send_buffer.get()), (char*) (send_buffer.get()) + msg_size,
           static_cast<uint8_t>(tag));
+
       // Fill recv buffer with known invalid pattern
       std::fill((char*) (recv_buffer.get()), (char*) (recv_buffer.get()) + msg_size,
           static_cast<uint8_t>(0xff));
 
       // for each rank, do a send/recv
-      for (int r = 0; r < size; ++r)
+      for (int remote_rank = 0; remote_rank < size; ++remote_rank)
       {
-        if (rank != r)    // we don't send/recv to ourself
+        if (rank != remote_rank)    // we don't send/recv to ourself
         {
-          SPDLOG_TRACE("{:20} of size {:#06x} rank {} from rank {} tag {}", "receiving message",
-              msg_size, rank, r, tag);
-          comm.recv(recv_buffer, msg_size, fi_addr_t(r), tag, nullptr /*, nullptr*/);
+          SPDLOG_TRACE("{:20} of size {:#06x} rank {} from rank {} tag {}", "posting receive",
+              msg_size, rank, remote_rank, tag);
+          comm.recv(recv_buffer, msg_size, fi_addr_t(remote_rank), tag,
+              [buf = recv_buffer.get(), msg_size, rank, remote_rank, tag](
+                  rank_type r, tag_type /*tag*/) {
+                verify_buffer(buf, msg_size, rank, tag, "recv completion", r, tag);
+              });
 
-          SPDLOG_TRACE("{:20} of size {:#06x} rank {} to rank {} tag {}", "sending message",
-              msg_size, rank, r, tag);
-          comm.send(send_buffer, msg_size, fi_addr_t(r), tag, nullptr /*, nullptr*/);
+          SPDLOG_TRACE("{:20} of size {:#06x} rank {} to rank {} tag {}", "posting send", msg_size,
+              rank, remote_rank, tag);
+          comm.send(send_buffer, msg_size, fi_addr_t(remote_rank), tag,
+              [buf = send_buffer.get(), msg_size, rank, remote_rank, tag](
+                  rank_type r, tag_type /*tag*/) {
+                verify_buffer(buf, msg_size, rank, tag, "send completion", r, tag);
+              });
         }
       }
     }
@@ -137,28 +149,10 @@ int main(int argc, char** argv)
   // clean up the pinned memory buffers, first scaan them to make sure all contain
   // the expected tag value - the send buffers were filled by us with tags, the
   // recv buffers should have been filled by the sending rank with the same tag
-  for (auto& buf : send_recv_buffers)
+  for (auto& [tag, buf] : send_recv_buffers)
   {
-    auto tag = std::get<0>(buf);
-    auto buffer = std::get<1>(buf);
-    auto buffer_ptr = (uint8_t*) (buffer.get());
-    SPDLOG_DEBUG("rank {} validating buffer with tag {}", rank, tag);
-    bool valid = true;
-    for (std::size_t i = 0; i < (1 << tag); ++i)
-    {
-      if (buffer_ptr[i] != static_cast<uint8_t>(tag))
-      {
-        valid = false;
-        break;
-      }
-    }
-    if (!valid)
-    {
-      SPDLOG_ERROR("rank {} buffer validation failed for tag {}", rank, tag);
-      throw std::runtime_error("buffer validation failed");
-    }
     SPDLOG_DEBUG("rank {} freeing buffer with tag {}", rank, tag);
-    heap.free(std::get<1>(buf));
+    heap.free(buf);
   }
 
   SPDLOG_DEBUG("{:20} rank {}", "Exiting", rank);

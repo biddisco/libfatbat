@@ -12,10 +12,6 @@
 #include <exception>
 //
 #include <rdma/fi_eq.h>
-//
-#include "libfatbat/fabric_error.hpp"
-#include "libfatbat/logging.hpp"
-#include "libfatbat_defines.hpp"
 
 namespace libfatbat {
 

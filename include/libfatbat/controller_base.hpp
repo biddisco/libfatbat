@@ -19,7 +19,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <sstream>
 //
 #include <boost/lockfree/queue.hpp>
 //
@@ -390,9 +389,9 @@ protected:
     std::size_t tx_attr_size_;
     std::size_t rx_attr_size_;
 
+    inline static constexpr uint32_t max_completions_array_limit_ = 256;
     uint32_t max_completions_per_poll_;
     uint32_t msg_rendezvous_threshold_;
-    inline static constexpr uint32_t max_completions_array_limit_ = 256;
 
     static inline thread_local std::chrono::steady_clock::time_point send_poll_stamp;
     static inline thread_local std::chrono::steady_clock::time_point recv_poll_stamp;
@@ -405,6 +404,7 @@ protected:
     bool mrhmem = false;
 
 public:
+    //
     bool get_mrbind() { return mrbind; }
 
 public:

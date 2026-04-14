@@ -8,8 +8,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #include <boost/program_options.hpp>
-#include "../test_controller.hpp"
+#include "controller.hpp"
 #include "libfatbat/logging.hpp"
+#include "pmi_helper.hpp"
+
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {

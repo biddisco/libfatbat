@@ -9,7 +9,10 @@
  */
 #pragma once
 
+#include <cstdint>
+#include <functional>
 //
+#include "libfatbat/logging.hpp"
 #include "libfatbat/operation_context_base.hpp"
 
 using rank_type = std::uint64_t;

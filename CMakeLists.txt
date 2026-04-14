@@ -95,12 +95,10 @@ if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
 endif()
 
 # ------------------------------------------------------------------------------
-# fmt library (for formatting nice log messages)
+# fmt library (for nice formatting of messages)
 # ------------------------------------------------------------------------------
-if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
-  find_package(fmt REQUIRED)
-  colour_message(STATUS ${Green} "✅ fmt found ${fmt_VERSION}")
-endif()
+find_package(fmt REQUIRED)
+colour_message(STATUS ${Green} "✅ fmt found ${fmt_VERSION}")
 
 # ---------------------------------------------------------------------
 # hwmalloc dependency
@@ -140,7 +138,7 @@ target_link_libraries(libfatbat INTERFACE HWMALLOC::hwmalloc)
 target_link_libraries(libfatbat INTERFACE libfabric::libfabric)
 
 if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
-  target_compile_definitions(libfatbat INTERFACE FATBAT_LOGGING_ENABLED=1)
+  target_compile_definitions(libfatbat INTERFACE LIBFATBAT_LOGGING_ENABLED=1)
   target_compile_definitions(
     libfatbat INTERFACE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_${FATBAT_LOG_LEVEL_UPPERCASE}
   )

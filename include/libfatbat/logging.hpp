@@ -9,17 +9,20 @@
  */
 #pragma once
 
-#if defined(FATBAT_LOGGING_ENABLED)
+#if defined(LIBFATBAT_LOGGING_ENABLED)
 
+# include <algorithm>
+# include <cstddef>
+# include <cstdint>
+# include <cstring>
 # include <tuple>
 //
+# include <boost/crc.hpp>
+# include <fmt/format.h>
 # include <fmt/ostream.h>
 # include <fmt/ranges.h>
-
 # include <spdlog/fmt/ostr.h>
 # include <spdlog/spdlog.h>
-//
-# include "libfatbat/print_type.hpp"
 
 template <typename... Args>
 struct scoped_var
@@ -52,6 +55,60 @@ struct scoped_var
   }
 };
 # define SPDLOG_SCOPE(format, ...) scoped_var local_scoped_var(format, __VA_ARGS__);
+
+// ------------------------------------------------------------------
+// helper function for printing short memory dump and crc32
+// useful for debugging corruptions in buffers during message transfers
+// ------------------------------------------------------------------
+namespace libfatbat::logging {
+  inline std::uint32_t crc32(void const* ptr, std::size_t size)
+  {
+    boost::crc_32_type result;
+    result.process_bytes(ptr, size);
+    return result.checksum();
+  }
+
+  struct mem_crc32
+  {
+    explicit mem_crc32(void const* a, std::size_t len, std::size_t wrap = 8)
+      : addr_(reinterpret_cast<std::uint8_t const*>(a))
+      , len_(len)
+      , wrap_((std::max) (wrap, std::size_t(1)))
+    {
+    }
+
+    std::uint8_t const* addr_;
+    std::size_t const len_;
+    std::size_t const wrap_;
+  };
+}    // namespace libfatbat::logging
+
+template <>
+struct fmt::formatter<libfatbat::logging::mem_crc32>
+{
+  constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
+
+  template <typename FormatContext>
+  auto format(libfatbat::logging::mem_crc32 const& value, FormatContext& ctx) const
+  {
+    auto out = ctx.out();
+    out = fmt::format_to(out, "Memory: address {} length {:06x} CRC32:{:08x}\n",
+        fmt::ptr(value.addr_), value.len_, libfatbat::logging::crc32(value.addr_, value.len_));
+
+    std::size_t const num_chunks = (std::min) ((value.len_ + 7) / 8, std::size_t(128));
+    for (std::size_t i = 0; i < num_chunks; ++i)
+    {
+      std::size_t const offset = i * 8;
+      std::size_t const bytes = (std::min) (value.len_ - offset, std::size_t(8));
+      std::uint64_t chunk = 0;
+      std::memcpy(&chunk, value.addr_ + offset, bytes);
+      out = fmt::format_to(out, "{:016x} ", chunk);
+      if (i % value.wrap_ == (value.wrap_ - 1)) { out = fmt::format_to(out, "\n"); }
+    }
+
+    return out;
+  }
+};
 
 #else
 

@@ -21,9 +21,10 @@
 //
 #include "libfatbat/logging.hpp"
 //
-#include "../communicator.hpp"
-#include "../polling_helper.hpp"
-#include "../test_controller.hpp"
+#include "communicator.hpp"
+#include "controller.hpp"
+#include "pmi_helper.hpp"
+#include "polling_helper.hpp"
 
 struct rma_key_info
 {
@@ -166,7 +167,8 @@ int main(int argc, char** argv)
       std::size_t const peers = size - 1;
       std::size_t const expected_reads = iterations * peers;
       std::size_t const warmup_iterations = 1;
-      std::size_t const max_chunk = static_cast<std::size_t>(max_completions_array_limit_ / peers);
+      std::size_t const max_chunk =
+          static_cast<std::size_t>(communicator::max_callback_queue_size_ / peers);
       std::size_t const chunk_limit = std::max<std::size_t>(1, max_chunk);
 
       auto post_read_iterations = [&](std::size_t num_iterations) {

@@ -7,7 +7,6 @@
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
  */
-#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -19,9 +18,11 @@
 //
 #include "libfatbat/logging.hpp"
 //
-#include "../communicator.hpp"
-#include "../polling_helper.hpp"
-#include "../test_controller.hpp"
+#include "communicator.hpp"
+#include "controller.hpp"
+#include "pmi_helper.hpp"
+#include "polling_helper.hpp"
+#include "test_utils.hpp"
 
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
@@ -164,25 +165,6 @@ int main(int argc, char** argv)
     SPDLOG_INFO("rank {} exchanged RMA keys", rank);
     pmi.fence();
 
-    // create a lambda we can use as a callback function that verifies the data in the rma read buffer is correct
-    auto verify_rma_read = [rank, &rma_read_buffers, message_size](rank_type src, tag_type tag) {
-      SPDLOG_DEBUG("{:20} rank {} received RMA read completion callback from rank {} with tag {}",
-          "RMA read completion callback", rank, src, tag);
-
-      // verify the RMA read buffer content: every byte must match the source rank
-      auto* data =
-          static_cast<uint8_t const*>(rma_read_buffers[static_cast<std::size_t>(src)].get());
-      for (std::size_t i = 0; i < static_cast<std::size_t>(message_size); ++i)
-      {
-        if (data[i] != static_cast<uint8_t>(src))
-        {
-          SPDLOG_ERROR("rank {} RMA validation failed: src {} index {} value {} expected {}", rank,
-              src, i, data[i], static_cast<uint8_t>(src));
-          throw std::runtime_error("RMA buffer validation failed");
-        }
-      }
-    };
-
     // --------------------------------------------------
     // do the RMA reads, strictly speaking this is racy as we can perform reads that might overlap with the threads
     // that are checking for completions and invoking callbacks, but since we are only reading into the rma_read_buffers
@@ -210,7 +192,11 @@ int main(int argc, char** argv)
             throw std::runtime_error("invalid RMA key info length");
           }
           assert(message_size == length);
-          comm.read(rma_read_buffers[r], message_size, r, address, key, verify_rma_read);
+          comm.read(rma_read_buffers[r], message_size, r, address, key,
+              [buf = rma_read_buffers[r].get(), sz = message_size, thisrank = rank](
+                  rank_type remote_rank, tag_type tag) {
+                verify_buffer(buf, sz, thisrank, remote_rank, "read completion", remote_rank, tag);
+              });
         }
       }
 

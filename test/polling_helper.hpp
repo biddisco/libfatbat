@@ -10,14 +10,12 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
-#include <cstdint>
 #include <thread>
 #include <vector>
 //
 #include "libfatbat/logging.hpp"
 //
-#include "../communicator.hpp"
-#include "../test_controller.hpp"
+#include "controller.hpp"
 
 // ----------------------------------------------------------------------------
 // Spawns a background thread that polls until stop_flag is set.

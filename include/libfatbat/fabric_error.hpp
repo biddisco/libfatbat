@@ -15,7 +15,6 @@
 #include <rdma/fi_errno.h>
 //
 #include "libfatbat/logging.hpp"
-#include "libfatbat_defines.hpp"
 
 namespace libfatbat {
 

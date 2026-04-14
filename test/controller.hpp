@@ -9,14 +9,10 @@
  */
 #pragma once
 
-#include <chrono>
-
 #include "libfatbat/controller_base.hpp"
-#include "libfatbat/locality.hpp"
 #include "libfatbat/logging.hpp"
 //
 #include "operation_context.hpp"
-#include "pmi_helper.hpp"
 
 // --------------------------------------------------------------------
 class test_controller : public libfatbat::controller_base<test_controller>
