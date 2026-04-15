@@ -135,7 +135,7 @@ int main(int argc, char** argv)
       std::memcpy(local_data_key.get(), &info, sizeof(rma_key_info));
       local_data_keys.push_back(local_data_key);
     }
-    SPDLOG_INFO("rank {} initialized RMA buffers", rank);
+    SPDLOG_INFO("{:20} RMA buffers :rank {}", "initialized", rank);
 
     // --------------------------------------------------
     // for each rank, exchange an RMA key
@@ -145,11 +145,11 @@ int main(int argc, char** argv)
       if (rank != r)
       {
         // receive an rma key from the other rank,
-        SPDLOG_TRACE("{:20} rank {} from rank {}", "receiving RMA key info", rank, r);
+        SPDLOG_TRACE("{:20} rank {} from rank {}", "receiving RMA key", rank, r);
         comm.recv(rma_read_keys[r], sizeof(rma_key_info), r, r, nullptr);
 
         // and send them our rma key (in any order since we are using tags to match messages)
-        SPDLOG_TRACE("{:20} rank {} to rank {}", "sending RMA key info", rank, r);
+        SPDLOG_TRACE("{:20} rank {} to rank {}", "sending RMA key", rank, r);
         comm.send(local_data_keys[r], sizeof(rma_key_info), r, rank, nullptr);
       }
     }
@@ -162,7 +162,7 @@ int main(int argc, char** argv)
     {
       std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
-    SPDLOG_INFO("rank {} exchanged RMA keys", rank);
+    SPDLOG_INFO("{:20} RMA keys    :rank {}", "exchanged", rank);
     pmi.fence();
 
     // --------------------------------------------------
@@ -183,8 +183,9 @@ int main(int argc, char** argv)
           auto address = nullptr;
           auto key = remote_key_info->remote_key;
           auto length = remote_key_info->length;
-          SPDLOG_INFO("rank {} reading from rank {} with address {:p} key {:#08x} length {:#10x}",
-              rank, r, address, key, length);
+          SPDLOG_INFO(
+              "{:20} rank {} reading from rank {} with address {:p} key {:#08x} length {:#10x}",
+              "RMA read", rank, r, address, key, length);
           if (length != message_size)
           {
             SPDLOG_ERROR(
@@ -207,7 +208,7 @@ int main(int argc, char** argv)
       {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
       }
-      SPDLOG_INFO("rank {} read RMA buffers", rank);
+      SPDLOG_INFO("{:20} RMA buffers : rank {}", "read complete", rank);
     }
   }
   pmi.fence();

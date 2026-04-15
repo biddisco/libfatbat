@@ -15,49 +15,78 @@
 # include <cstddef>
 # include <cstdint>
 # include <cstring>
-# include <tuple>
+# include <string>
+# include <type_traits>
 //
 # include <boost/crc.hpp>
+# include <fmt/args.h>
 # include <fmt/format.h>
 # include <fmt/ostream.h>
 # include <fmt/ranges.h>
 # include <spdlog/fmt/ostr.h>
 # include <spdlog/spdlog.h>
 
+namespace libfatbat::logging {
+
+  template <typename T>
+  inline constexpr bool is_format_fragment_v =
+      std::is_convertible_v<std::decay_t<T>, fmt::string_view>;
+
+  template <typename... Args>
+  inline std::string make_scope_message(fmt::string_view format, Args const&... args)
+  {
+    std::string effective_format(format.data(), format.size());
+    std::size_t num_fields = sizeof...(args);
+    std::size_t num_data_args = 0;
+    fmt::dynamic_format_arg_store<fmt::format_context> store;
+
+    auto process_arg = [&](auto const& arg) {
+      using arg_type = std::decay_t<decltype(arg)>;
+      if (num_data_args < num_fields)
+      {
+        store.push_back(arg);
+        ++num_data_args;
+        return;
+      }
+
+      if constexpr (is_format_fragment_v<arg_type>)
+      {
+        fmt::string_view const fragment(arg);
+        effective_format += " ";
+        effective_format.append(fragment.data(), fragment.size());
+        num_fields += sizeof...(args) - num_data_args;
+      }
+      else
+      {
+        effective_format += " {}";
+        store.push_back(arg);
+        ++num_fields;
+        ++num_data_args;
+      }
+    };
+
+    (process_arg(args), ...);
+    return fmt::vformat(effective_format, store);
+  }
+}    // namespace libfatbat::logging
+
 template <typename... Args>
 struct scoped_var
 {
-  // capture tuple elements by reference - no temp vars in constructor please
-  std::string format_;
-  std::tuple<Args const&...> const message_;
+  std::string const message_;
   //
   explicit scoped_var(std::string format, Args const&... args)
-    : format_(format)
-    , message_(args...)    //
+    : message_(libfatbat::logging::make_scope_message(format, args...))
   {
-    std::string message_str_ = std::apply(
-        [&](auto const&... args) { return fmt::vformat(format_, fmt::make_format_args(args...)); },
-        message_);
-    SPDLOG_TRACE("{:20} {}", ">> enter <<", message_str_);
-    // SPDLOG_INFO("{:20} {}", ">> enter <<", "message_str_");
-    // SPDLOG_INFO("{:20} {}", ">> enter <<",
-    //   fmt::vformat(format_, fmt::make_format_args(std::apply([](auto const&... args) { return std::make_tuple(args...); }, message_))));
+    SPDLOG_TRACE("{:20} {}", ">> enter <<", message_);
   }
 
-  ~scoped_var()
-  {
-    SPDLOG_TRACE("{:20} {}", "<< leave >>",
-        std::apply(
-            [&](auto const&... args) {
-              return fmt::vformat(format_, fmt::make_format_args(args...));
-            },
-            message_));
-  }
+  ~scoped_var() { SPDLOG_TRACE("{:20} {}", "<< leave >>", message_); }
 };
 # define SPDLOG_SCOPE(format, ...) scoped_var local_scoped_var(format, __VA_ARGS__);
 
 // ------------------------------------------------------------------
-// helper function for printing short memory dump and crc32
+// helper class for printing short memory dump and crc32
 // useful for debugging corruptions in buffers during message transfers
 // ------------------------------------------------------------------
 namespace libfatbat::logging {

@@ -193,7 +193,8 @@ struct pmi_helper
     size = val->data.uint32;
     PMIX_VALUE_RELEASE(val);
 
-    SPDLOG_DEBUG("{:20}: Rank {}/{} : on Node {}", PMIx_Proc_string(&myproc), rank, size, node);
+    SPDLOG_DEBUG("{:20}: {} Rank {}/{} : on Node {}", "Process", PMIx_Proc_string(&myproc), rank,
+        size, node);
     return std::make_tuple(rank, size);
   }
 
@@ -221,7 +222,7 @@ struct pmi_helper
         base64_t((char const*) (here.fabric_data().data()) + locality_defs::array_size));
     int encoded_length = encoded_locality.size();
     SPDLOG_DEBUG(
-        "{:20} {} {} ({})", "Encoded locality as", encoded_locality, encoded_length, here.to_str());
+        "{:20} {} {} ({})", "Encoded locality", encoded_locality, encoded_length, here.to_str());
 
     // Key name for PMI
     std::string pmi_key = "LIBFABRIC_" + std::to_string(rank);

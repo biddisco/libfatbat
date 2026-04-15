@@ -63,19 +63,22 @@ int main(int argc, char** argv)
   size = val->data.uint32;
   PMIX_VALUE_RELEASE(val);
 
-  SPDLOG_DEBUG("{:30}: Rank {}/{} : on Node {}", PMIx_Proc_string(&myproc), rank, size, node);
+  SPDLOG_DEBUG(
+      "{:20} {} : Rank {}/{} : on Node {}", "Process", PMIx_Proc_string(&myproc), rank, size, node);
 
   // share a string across all ranks
   char key[PMIX_MAX_KEYLEN];
   char my_string[64];
-  snprintf(my_string, sizeof(my_string), "Hello from rank %u", myproc.rank);
-  snprintf(key, sizeof(key), "LIBFABRIC_%u_STRING", myproc.rank);
+  fmt::format_to(my_string, "Hello from rank {:03}\0", myproc.rank);
+  fmt::format_to(key, "LIBFABRIC_{:03}_STRING\0", myproc.rank);
+  SPDLOG_DEBUG("{:20} rank {} key {} value {}", "Prepared data", rank, key, my_string);
+
   pmix_value_t value;
   value.type = PMIX_STRING;
   value.data.string = my_string;
 
   {
-    SPDLOG_SCOPE("{} {}", "Putting data", rank);
+    SPDLOG_SCOPE("Rank {} Setting key/value : {}/{}", rank, key, my_string);
     CHECK_PMIX("Put", PMIx_Put(PMIX_GLOBAL, key, &value));
     CHECK_PMIX("Commit", PMIx_Commit());
     CHECK_PMIX("Fence", PMIx_Fence(NULL, 0, NULL, 0));
@@ -88,12 +91,12 @@ int main(int argc, char** argv)
       pmix_proc_t proc;
       pmix_value_t* val = NULL;
 
-      SPDLOG_SCOPE("{} {}", "Getting data", rank);
+      SPDLOG_SCOPE("Rank {} Getting data", rank);
       PMIX_LOAD_PROCID(&proc, myproc.nspace, r);
-      snprintf(key, sizeof(key), "LIBFABRIC_%u_STRING", r);
+      fmt::format_to(key, "LIBFABRIC_{:03}_STRING\0", r);
 
       CHECK_PMIX("Get (key)", PMIx_Get(&proc, key, NULL, 0, &val));
-      SPDLOG_DEBUG("Rank {} got from rank {}: {}", myproc.rank, r, val->data.string);
+      SPDLOG_DEBUG("{:20} Rank {} from rank {}: {}", "Key read", myproc.rank, r, val->data.string);
       PMIx_Value_free(val, 1);
     }
   }

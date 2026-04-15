@@ -279,12 +279,12 @@ namespace libfatbat {
       //
       if (region_provider::unregister_memory(region_))
       {
-        SPDLOG_TRACE("fi_close mr failed");
+        SPDLOG_ERROR("{:20} mr failed {} ", "fi_close", *this);
         return -1;
       }
       else
       {
-        SPDLOG_TRACE("{:20} {}", "de-Registered region", *this);
+        SPDLOG_TRACE("{:20} {}", "de-Registered", *this);
       }
       region_ = nullptr;
     }

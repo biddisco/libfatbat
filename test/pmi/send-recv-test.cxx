@@ -139,9 +139,12 @@ int main(int argc, char** argv)
         controller.recvs_complete_ < controller.recvs_posted_)
     {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      SPDLOG_TRACE("rank {} sends: {}/{}, recvs: {}/{}", rank,    //
-          (uint32_t) controller.sends_complete_, (uint32_t) controller.sends_posted_,
-          (uint32_t) controller.recvs_complete_, (uint32_t) controller.recvs_posted_);
+      SPDLOG_DEBUG("{:20} rank {}: sends: {}/{}, recvs: {}/{}, reads: {}/{}, writes: {}/{},",
+          "Polling wait", rank, (uint32_t) controller.sends_complete_,
+          (uint32_t) controller.sends_posted_, (uint32_t) controller.recvs_complete_,
+          (uint32_t) controller.recvs_posted_, (uint32_t) controller.reads_complete_,
+          (uint32_t) controller.reads_posted_, (uint32_t) controller.writes_complete_,
+          (uint32_t) controller.writes_posted_);
     }
     SPDLOG_DEBUG("{:20} rank {}", "Exiting polling scope", rank);
   }
@@ -151,7 +154,7 @@ int main(int argc, char** argv)
   // recv buffers should have been filled by the sending rank with the same tag
   for (auto& [tag, buf] : send_recv_buffers)
   {
-    SPDLOG_DEBUG("rank {} freeing buffer with tag {}", rank, tag);
+    SPDLOG_DEBUG("{:20} rank {} tag {}", "Freeing buffer", rank, tag);
     heap.free(buf);
   }
 

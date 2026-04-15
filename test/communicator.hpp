@@ -153,7 +153,8 @@ struct communicator
       if (ret == 0) { return; }
       else if (ret == -FI_EAGAIN)
       {
-        SPDLOG_TRACE("{:20} {}", "Reposting FI_EAGAIN", msg);    // , std::forward<Args>(args)...);
+        SPDLOG_TRACE(
+            "{:20} Reposting : {}", "FI_EAGAIN", msg);    // , std::forward<Args>(args)...);
         // no point stressing the system
         m_controller->poll_for_work_completions(this);
       }
