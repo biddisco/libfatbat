@@ -24,15 +24,14 @@
 #include "polling_helper.hpp"
 #include "test_utils.hpp"
 
+// ------------------------------------------------------------------
+inline auto rdmatest_log = libfatbat::log::create("RdmaTest");
+
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
   // -------------------------------------------------
-#if defined(SPDLOG_ACTIVE_LEVEL) && (SPDLOG_ACTIVE_LEVEL != SPDLOG_LEVEL_OFF)
-  // always include thread id in log output
-  spdlog::set_pattern("[%^%-8l%$]%t| %v");
-  spdlog::set_level(spdlog::level::trace);
-#endif
+  libfatbat::log::init_from_env();
 
   // -------------------------------------------------
   // define a boost program options parser and setup flags
@@ -66,7 +65,7 @@ int main(int argc, char** argv)
 
   if (size < 2)
   {
-    SPDLOG_ERROR("This test requires exactly 2 ranks.");
+    LIBFATBAT_ERROR(rdmatest_log, "This test requires exactly 2 ranks.");
     return EXIT_FAILURE;
   }
 
@@ -135,7 +134,7 @@ int main(int argc, char** argv)
       std::memcpy(local_data_key.get(), &info, sizeof(rma_key_info));
       local_data_keys.push_back(local_data_key);
     }
-    SPDLOG_INFO("{:20} RMA buffers :rank {}", "initialized", rank);
+    LIBFATBAT_INFO(rdmatest_log, "{:<20} RMA buffers :rank {}", "initialized", rank);
 
     // --------------------------------------------------
     // for each rank, exchange an RMA key
@@ -145,11 +144,11 @@ int main(int argc, char** argv)
       if (rank != r)
       {
         // receive an rma key from the other rank,
-        SPDLOG_TRACE("{:20} rank {} from rank {}", "receiving RMA key", rank, r);
+        LIBFATBAT_TRACE(rdmatest_log, "{:<20} rank {} from rank {}", "receiving RMA key", rank, r);
         comm.recv(rma_read_keys[r], sizeof(rma_key_info), r, r, nullptr);
 
         // and send them our rma key (in any order since we are using tags to match messages)
-        SPDLOG_TRACE("{:20} rank {} to rank {}", "sending RMA key", rank, r);
+        LIBFATBAT_TRACE(rdmatest_log, "{:<20} rank {} to rank {}", "sending RMA key", rank, r);
         comm.send(local_data_keys[r], sizeof(rma_key_info), r, rank, nullptr);
       }
     }
@@ -162,7 +161,7 @@ int main(int argc, char** argv)
     {
       std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
-    SPDLOG_INFO("{:20} RMA keys    :rank {}", "exchanged", rank);
+    LIBFATBAT_INFO(rdmatest_log, "{:<20} RMA keys    :rank {}", "exchanged", rank);
     pmi.fence();
 
     // --------------------------------------------------
@@ -183,12 +182,12 @@ int main(int argc, char** argv)
           auto address = nullptr;
           auto key = remote_key_info->remote_key;
           auto length = remote_key_info->length;
-          SPDLOG_INFO(
-              "{:20} rank {} reading from rank {} with address {:p} key {:#08x} length {:#10x}",
+          LIBFATBAT_INFO(rdmatest_log,
+              "{:<20} rank {} reading from rank {} with address {:p} key {:#08x} length {:#10x}",
               "RMA read", rank, r, address, key, length);
           if (length != message_size)
           {
-            SPDLOG_ERROR(
+            LIBFATBAT_ERROR(rdmatest_log,
                 "rank {} received invalid RMA key info length {} from rank {}", rank, length, r);
             throw std::runtime_error("invalid RMA key info length");
           }
@@ -208,7 +207,7 @@ int main(int argc, char** argv)
       {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
       }
-      SPDLOG_INFO("{:20} RMA buffers : rank {}", "read complete", rank);
+      LIBFATBAT_INFO(rdmatest_log, "{:<20} RMA buffers : rank {}", "read complete", rank);
     }
   }
   pmi.fence();

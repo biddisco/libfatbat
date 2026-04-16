@@ -15,6 +15,8 @@
 
 namespace libfatbat {
 
+  inline auto opctx_log = libfatbat::log::create("opctxtbase");
+
   // This struct holds the ready state of a future
   // we must also store the context used in libfabric, in case
   // a request is cancelled - fi_cancel(...) needs it
@@ -30,7 +32,7 @@ public:
     operation_context_base()
       : context_reserved_space()
     {
-      // SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(opctx_log, "{} {}", (void*) (this), __func__);
     }
 
     // error
@@ -40,8 +42,8 @@ public:
     }
     void handle_error_impl(struct fi_cq_err_entry& err)
     {
-      // throw libfatbat::fabric_error(err.prov_errno, "Unhandled error in operation context");
-      // std::terminate();
+      throw libfatbat::fabric_error(err.prov_errno, "Unhandled error in operation context");
+      std::terminate();
     }
 
     void handle_cancelled() { static_cast<Derived*>(this)->handle_cancelled_impl(); }

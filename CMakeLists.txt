@@ -105,11 +105,13 @@ colour_message(STATUS ${Green} "✅ fmt found ${fmt_VERSION}")
 # ---------------------------------------------------------------------
 find_package(hwmalloc QUIET)
 # If present, override source directory, leave binary dir as default
-if(EXISTS "${CMAKE_SOURCE_DIR}/extern/hwmalloc")
+if(NOT TARGET hwmalloc AND EXISTS "${CMAKE_SOURCE_DIR}/extern/hwmalloc"
+   AND NOT FETCHCONTENT_SOURCE_DIR_HWMALLOC
+)
   set(FETCHCONTENT_SOURCE_DIR_HWMALLOC "${CMAKE_SOURCE_DIR}/extern/hwmalloc")
 endif()
 
-if(NOT hwmalloc_FOUND)
+if(NOT TARGET hwmalloc AND NOT hwmalloc_FOUND)
   FetchContent_Declare(
     hwmalloc GIT_REPOSITORY https://github.com/ghex-org/hwmalloc.git GIT_TAG jb-develop
   )

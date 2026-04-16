@@ -18,6 +18,8 @@
 
 namespace libfatbat {
 
+  inline auto err_log = libfatbat::log::create("Error");
+
   class fabric_error : public std::runtime_error
   {
 public:
@@ -26,7 +28,7 @@ public:
       : std::runtime_error(std::string(fi_strerror(-err)) + msg)
       , error_(err)
     {
-      SPDLOG_ERROR("{:20}: {}", msg, fi_strerror(-err));
+      LIBFATBAT_ERROR(err_log, "{:<20}: {}", msg, fi_strerror(-err));
       std::terminate();
     }
 
@@ -34,7 +36,7 @@ public:
       : std::runtime_error(fi_strerror(-err))
       , error_(-err)
     {
-      SPDLOG_ERROR("{:20}: {}", "fabric_error", what());
+      LIBFATBAT_ERROR(err_log, "{:<20}: {}", "fabric_error", what());
       std::terminate();
     }
 

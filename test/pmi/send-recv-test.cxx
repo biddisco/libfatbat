@@ -24,15 +24,13 @@
 #include "polling_helper.hpp"
 #include "test_utils.hpp"
 
+// ------------------------------------------------------------------
+inline auto srtest_log = libfatbat::log::create("SendRecv");
+
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-  // -------------------------------------------------
-  // define log level settings when enabled
-#if defined(SPDLOG_ACTIVE_LEVEL) && (SPDLOG_ACTIVE_LEVEL != SPDLOG_LEVEL_OFF)
-  spdlog::set_pattern("[%^%-8l%$]%t| %v");
-  spdlog::set_level(spdlog::level::trace);
-#endif
+  libfatbat::log::init_from_env();
 
   // -------------------------------------------------
   // define a boost program options parser and setup flags
@@ -67,7 +65,7 @@ int main(int argc, char** argv)
 
   if (size < 2)
   {
-    SPDLOG_ERROR("This test requires exactly 2 ranks.");
+    LIBFATBAT_ERROR(srtest_log, "This test requires exactly 2 ranks.");
     return EXIT_FAILURE;
   }
 
@@ -116,16 +114,16 @@ int main(int argc, char** argv)
       {
         if (rank != remote_rank)    // we don't send/recv to ourself
         {
-          SPDLOG_TRACE("{:20} of size {:#06x} rank {} from rank {} tag {}", "posting receive",
-              msg_size, rank, remote_rank, tag);
+          LIBFATBAT_TRACE(srtest_log, "{:<20} of size {:#06x} rank {} from rank {} tag {}",
+              "posting receive", msg_size, rank, remote_rank, tag);
           comm.recv(recv_buffer, msg_size, fi_addr_t(remote_rank), tag,
               [buf = recv_buffer.get(), msg_size, rank, remote_rank, tag](
                   rank_type r, tag_type /*tag*/) {
                 verify_buffer(buf, msg_size, rank, tag, "recv completion", r, tag);
               });
 
-          SPDLOG_TRACE("{:20} of size {:#06x} rank {} to rank {} tag {}", "posting send", msg_size,
-              rank, remote_rank, tag);
+          LIBFATBAT_TRACE(srtest_log, "{:<20} of size {:#06x} rank {} to rank {} tag {}",
+              "posting send", msg_size, rank, remote_rank, tag);
           comm.send(send_buffer, msg_size, fi_addr_t(remote_rank), tag,
               [buf = send_buffer.get(), msg_size, rank, remote_rank, tag](
                   rank_type r, tag_type /*tag*/) {
@@ -139,14 +137,15 @@ int main(int argc, char** argv)
         controller.recvs_complete_ < controller.recvs_posted_)
     {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      SPDLOG_DEBUG("{:20} rank {}: sends: {}/{}, recvs: {}/{}, reads: {}/{}, writes: {}/{},",
+      LIBFATBAT_DEBUG(srtest_log,
+          "{:<20} rank {}: sends: {}/{}, recvs: {}/{}, reads: {}/{}, writes: {}/{},",
           "Polling wait", rank, (uint32_t) controller.sends_complete_,
           (uint32_t) controller.sends_posted_, (uint32_t) controller.recvs_complete_,
           (uint32_t) controller.recvs_posted_, (uint32_t) controller.reads_complete_,
           (uint32_t) controller.reads_posted_, (uint32_t) controller.writes_complete_,
           (uint32_t) controller.writes_posted_);
     }
-    SPDLOG_DEBUG("{:20} rank {}", "Exiting polling scope", rank);
+    LIBFATBAT_DEBUG(srtest_log, "{:<20} rank {}", "Exiting polling scope", rank);
   }
 
   // clean up the pinned memory buffers, first scaan them to make sure all contain
@@ -154,10 +153,10 @@ int main(int argc, char** argv)
   // recv buffers should have been filled by the sending rank with the same tag
   for (auto& [tag, buf] : send_recv_buffers)
   {
-    SPDLOG_DEBUG("{:20} rank {} tag {}", "Freeing buffer", rank, tag);
+    LIBFATBAT_DEBUG(srtest_log, "{:<20} rank {} tag {}", "Freeing buffer", rank, tag);
     heap.free(buf);
   }
 
-  SPDLOG_DEBUG("{:20} rank {}", "Exiting", rank);
+  LIBFATBAT_DEBUG(srtest_log, "{:<20} rank {}", "Exiting", rank);
   return 0;
 }

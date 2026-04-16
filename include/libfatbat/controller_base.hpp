@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <iostream>
 #include <memory>
@@ -43,6 +44,7 @@
 // #define EXCESSIVE_POLLING_BACKOFF_MICRO_S 50
 
 // ------------------------------------------------------------------
+inline auto bctrl_log = libfatbat::log::create("BaseCtrl");
 
 // ----------------------------------------
 // auto progress (libfabric thread) or manual
@@ -233,7 +235,7 @@ namespace libfatbat {
   template <typename Handle>
   void fidclose(Handle fid, char const* msg)
   {
-    SPDLOG_DEBUG("{:20} {}", "fid close", msg);
+    LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "fid close", msg);
     int ret = fi_close(fid);
     if (ret == -FI_EBUSY) { throw libfatbat::fabric_error(ret, "fi_close EBUSY"); }
     else if (ret == FI_SUCCESS) { return; }
@@ -260,7 +262,7 @@ public:
       , tq_(tq)
       , name_(name)
     {
-      SPDLOG_SCOPE("{} {}, {}", (void*) (this), __func__, name_);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}, {}", (void*) (this), __func__, name_);
     }
 
     // to keep boost::lockfree happy, we need these copy operators
@@ -269,7 +271,7 @@ public:
 
     void cleanup()
     {
-      if (name_) { SPDLOG_SCOPE("{} {}, {}", (void*) (this), __func__, name_); }
+      if (name_) { LIBFATBAT_SCOPE(bctrl_log, "{} {}, {}", (void*) (this), __func__, name_); }
       if (ep_)
       {
         fidclose(&ep_->fid, "endpoint");
@@ -326,8 +328,8 @@ public:
     ~stack_endpoint()
     {
       if (!pool_) return;
-      SPDLOG_TRACE("{:20} used push ep {} tx cq {} rx cq {}", "Scalable Ep", (void*) (get_ep()),
-          (void*) (get_tx_cq()), (void*) (get_rx_cq()));
+      LIBFATBAT_TRACE(bctrl_log, "{:<20} used push ep {} tx cq {} rx cq {}", "Scalable Ep",
+          (void*) (get_ep()), (void*) (get_tx_cq()), (void*) (get_rx_cq()));
       pool_->push(endpoint_);
     }
 
@@ -406,6 +408,10 @@ protected:
 public:
     //
     bool get_mrbind() { return mrbind; }
+    // we do not know how many ranks there are, but some controllers might,
+    // we provide a default implementation that returns -1
+    virtual std::int64_t rank() { return -1; }
+    virtual std::int64_t size() { return -1; }
 
 public:
     libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> sends_posted_;
@@ -419,7 +425,7 @@ public:
 
     void finvoke(char const* msg, char const* err, int ret)
     {
-      SPDLOG_TRACE("{:20}", msg);
+      LIBFATBAT_TRACE(bctrl_log, "{:<20}", msg);
       if (ret) throw libfatbat::fabric_error(ret, err);
     }
 
@@ -455,14 +461,19 @@ public:
     // clean up all resources
     ~controller_base()
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
-      unsigned int messages_handled_ = 0;
-      unsigned int rma_reads_ = 0;
-      unsigned int recv_deletes_ = 0;
+      // std::uint64_t recv_deletes_ = 0;
+      //
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
+      [[maybe_unused]] unsigned int messages_handled_ = sends_posted_.value_ + recvs_posted_.value_ +
+          reads_posted_.value_ + writes_posted_.value_;
+      // unsigned int delete_err_ = messages_handled_ - recv_deletes_;
 
-      SPDLOG_DEBUG("{:20} Received messages {}, Total reads {}, Total deletes {}, deletes error {}",
-          "Counters", messages_handled_, rma_reads_, recv_deletes_,
-          messages_handled_ - recv_deletes_);
+      LIBFATBAT_DEBUG(bctrl_log,
+          "{:<20} rank {}: sends: {}/{}, recvs: {}/{}, reads: {}/{}, writes: {}/{},", "Shutdown",
+          rank(), (uint32_t) sends_complete_, (uint32_t) sends_posted_,
+          (uint32_t) recvs_complete_, (uint32_t) recvs_posted_,
+          (uint32_t) reads_complete_, (uint32_t) reads_posted_,
+          (uint32_t) writes_complete_, (uint32_t) writes_posted_);
 
       tx_endpoints_.consume_all([](auto&& ep) { ep.cleanup(); });
       rx_endpoints_.consume_all([](auto&& ep) { ep.cleanup(); });
@@ -495,7 +506,7 @@ public:
       fidclose(&fabric_->fid, "Fabric");
 
       // clean up
-      SPDLOG_DEBUG("{:20}", "freeing fabric_info");
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "freeing fabric_info");
 
       fi_freeinfo(fabric_info_);
     }
@@ -510,7 +521,7 @@ public:
     endpoint_wrapper create_rx_endpoint(
         struct fid_domain* domain, struct fi_info* info, struct fid_av* av)
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
       auto ep_rx = new_endpoint_active(domain, info, false);
 
       // bind address vector
@@ -531,20 +542,20 @@ public:
     void
     initialize(std::string const& provider, bool rootnode, int size, size_t threads, Args&&... args)
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
       max_completions_per_poll_ = libfabric_completions_per_poll();
-      SPDLOG_DEBUG("{:20} {}", "Poll completions", max_completions_per_poll_);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "Poll completions", max_completions_per_poll_);
 
       uint32_t default_val = (threads == 1) ? 0x400 : 0x4000;
       msg_rendezvous_threshold_ = libfabric_rendezvous_threshold(default_val);
-      SPDLOG_DEBUG("{:20} {}", "Rendezvous threshold", msg_rendezvous_threshold_);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "Rendezvous threshold", msg_rendezvous_threshold_);
 
       endpoint_type_ = static_cast<endpoint_type>(libfabric_endpoint_type());
-      SPDLOG_DEBUG("{:20} {}", "Endpoints", libfabric_endpoint_string());
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "Endpoints", libfabric_endpoint_string());
       eps_ = std::make_unique<endpoints_lifetime_manager>();
 
-      SPDLOG_DEBUG("{:20} {}", "Threads", threads);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "Threads", threads);
 
       open_fabric(provider, threads, rootnode);
 
@@ -612,7 +623,8 @@ public:
         auto ep_sx = new_endpoint_scalable(
             fabric_domain_, fabric_info_, true /*Tx*/, threads, threads_allocated);
 
-        SPDLOG_DEBUG("{:20} {} {}", "Scalable Ep", "ok, Contexts allocated", threads_allocated);
+        LIBFATBAT_DEBUG(
+            bctrl_log, "{:<20} {} {}", "Scalable Ep", "ok, Contexts allocated", threads_allocated);
 
         finvoke("fi_scalable_ep_bind AV", "fi_scalable_ep_bind",
             fi_scalable_ep_bind(ep_sx, &av_->fid, 0));
@@ -622,7 +634,7 @@ public:
         //
         for (unsigned int i = 0; i < threads_allocated; i++)
         {
-          SPDLOG_SCOPE("{} {}, {}", (void*) (this), "scalable", i);
+          LIBFATBAT_SCOPE(bctrl_log, "{} {}, {}", (void*) (this), "scalable", i);
 
           // For threadlocal/scalable endpoints, tx/rx resources
           fid_ep* scalable_ep_tx;
@@ -637,8 +649,9 @@ public:
           enable_endpoint(scalable_ep_tx, "tx scalable");
 
           endpoint_wrapper tx(scalable_ep_tx, nullptr, scalable_cq_tx, "tx scalable");
-          SPDLOG_DEBUG("{:20} initial tx push ep {} tx cq {} rx cq {}", "Scalable Ep",
-              (void*) (tx.get_ep()), (void*) (tx.get_tx_cq()), (void*) (tx.get_rx_cq()));
+          LIBFATBAT_DEBUG(bctrl_log, "{:<20} initial tx push ep {} tx cq {} rx cq {}",
+              "Scalable Ep", (void*) (tx.get_ep()), (void*) (tx.get_tx_cq()),
+              (void*) (tx.get_rx_cq()));
           tx_endpoints_.push(tx);
         }
 
@@ -648,7 +661,7 @@ public:
       // once enabled we can get the address
       enable_endpoint(eps_->ep_rx_.get_ep(), "rx here");
       here_ = get_endpoint_address(&eps_->ep_rx_.get_ep()->fid);
-      SPDLOG_DEBUG("{:20} {}", "setting 'here'", here_.to_str());
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "setting 'here'", here_.to_str());
 
       //        // if we are using scalable endpoints, then setup tx/rx contexts
       //        // we will us a single endpoint for all Tx/Rx contexts
@@ -665,7 +678,7 @@ public:
       //                throw libfatbat::fabric_error(FI_EOTHER, "fi_scalable endpoint creation
       //                failed");
 
-      //            SPDLOG_TRACE("{:20} {} {}", "scalable endpoint ok", "Contexts allocated", threads_allocated);
+      //            LIBFATBAT_TRACE(bctrl_log,"{:<20} {} {}", "scalable endpoint ok", "Contexts allocated", threads_allocated);
 
       //            // prepare the stack for insertions
       //            tx_endpoints_.reserve(threads_allocated);
@@ -695,7 +708,7 @@ public:
       //                enable_endpoint(scalable_ep_tx, "tx scalable");
 
       //                endpoint_wrapper tx(scalable_ep_tx, nullptr, scalable_cq_tx, "tx
-      //                scalable"); SPDLOG_ERROR(cnb_deb,
+      //                scalable"); LIBFATBAT_ERROR(bctrl_log,
       //                    trace(str<>("Scalable Ep"), "initial tx push", "ep",
       //                        NS_DEBUG::ptr(tx.get_ep()), "tx cq",
       //                        NS_DEBUG::ptr(tx.get_tx_cq()), "rx cq",
@@ -716,7 +729,7 @@ public:
       ////                enable_endpoint(scalable_ep_rx, "rx scalable");
 
       ////                endpoint_wrapper rx(scalable_ep_rx, scalable_cq_rx, nullptr, "rx
-      ///scalable"); /                SPDLOG_ERROR(cnb_deb, /                    trace(str<>("Scalable
+      ///scalable"); /                LIBFATBAT_ERROR(bctrl_log, /                    trace(str<>("Scalable
       ///Ep"), "initial rx push", "ep", /                        NS_DEBUG::ptr(rx.get_ep()), "tx
       ///cq", NS_DEBUG::ptr(rx.get_tx_cq()), "rx cq", / NS_DEBUG::ptr(rx.get_rx_cq()))); /
       ///rx_endpoints_.push(rx);
@@ -735,7 +748,7 @@ public:
     uint64_t caps_flags(uint64_t available_flags) const
     {
       char buf[1024];
-      SPDLOG_DEBUG("{:20} {:016x} : {}", "caps available", available_flags,
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:016x} : {}", "caps available", available_flags,
           fi_tostr_r(buf, 1024, &available_flags, FI_TYPE_CAPS));
       uint64_t required_flags = static_cast<Derived const*>(this)->caps_flags(available_flags);
       //
@@ -745,11 +758,12 @@ public:
         uint64_t f = (1ULL << bit);
         if ((required_flags & f) && ((available_flags & f) == 0))
         {
-          SPDLOG_ERROR("{:20} {}", "caps unavailable", fi_tostr_r(buf, 1024, &f, FI_TYPE_CAPS));
+          LIBFATBAT_ERROR(
+              bctrl_log, "{:<20} {}", "caps unavailable", fi_tostr_r(buf, 1024, &f, FI_TYPE_CAPS));
           final_flags &= ~f;
         }
       }
-      SPDLOG_DEBUG("{:20} {:016x} : {}", "caps requested", final_flags,
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:016x} : {}", "caps requested", final_flags,
           fi_tostr_r(buf, 1024, &final_flags, FI_TYPE_CAPS));
       return final_flags;
     }
@@ -789,7 +803,7 @@ public:
     // initialize the basic fabric/domain/name
     void open_fabric(std::string const& provider, int threads, bool rootnode)
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
       struct fi_info* fabric_hints_ = fi_allocinfo();
       if (!fabric_hints_) { throw libfatbat::fabric_error(-1, "Failed to allocate fabric hints"); }
@@ -803,19 +817,20 @@ public:
       {
         fabric_hints_->fabric_attr->prov_name = strdup(provider.c_str());
       }
-      SPDLOG_DEBUG("{:20} {}", "fabric provider", fabric_hints_->fabric_attr->prov_name);
+      LIBFATBAT_DEBUG(
+          bctrl_log, "{:<20} {}", "fabric provider", fabric_hints_->fabric_attr->prov_name);
 
 #if defined(HAVE_LIBFATBAT_CXI)
       // libfabric domain for multi-nic CXI provider
       char const* cxi_domain = std::getenv("FI_CXI_DEVICE_NAME");
       if (cxi_domain == nullptr)
       {
-        SPDLOG_WARN("{:20} {}", "Domain", "FI_CXI_DEVICE_NAME not set");
+        LIBFATBAT_WARN(bctrl_log, "{:<20} {}", "Domain", "FI_CXI_DEVICE_NAME not set");
       }
       else
       {
         fabric_hints_->domain_attr->name = strdup(cxi_domain);
-        SPDLOG_DEBUG("{:20} {}", "fabric domain", fabric_hints_->domain_attr->name);
+        LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "fabric domain", fabric_hints_->domain_attr->name);
       }
 #endif
 
@@ -830,7 +845,7 @@ public:
       if (display_fabric_info_ && init_fabric_info_)
       {
         std::array<char, 8192> buf;
-        SPDLOG_TRACE("{:20} {} {}", "Fabric info", "pre-check ->",
+        LIBFATBAT_TRACE(bctrl_log, "{:<20} {} {}", "Fabric info", "pre-check ->",
             fabric_hints_->fabric_attr->prov_name, "\n",
             fi_tostr_r(buf.data(), buf.size(), init_fabric_info_, FI_TYPE_INFO));
       }
@@ -846,7 +861,7 @@ public:
       if ((init_fabric_info_->mode & FI_CONTEXT) == 0)
       {
         std::array<char, 1024> buf;
-        SPDLOG_DEBUG("{:20} {}", "mode FI_CONTEXT!=0",
+        LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "mode FI_CONTEXT!=0",
             fi_tostr_r(buf.data(), buf.size(), &init_fabric_info_->mode, FI_TYPE_MODE));
       }
       fabric_hints_->domain_attr->name = strdup(init_fabric_info_->domain_attr->name);
@@ -855,11 +870,11 @@ public:
       auto progress = libfabric_progress_type();
       fabric_hints_->domain_attr->control_progress = progress;
       fabric_hints_->domain_attr->data_progress = progress;
-      SPDLOG_DEBUG("progress {}", libfabric_progress_string());
+      LIBFATBAT_DEBUG(bctrl_log, "progress {}", libfabric_progress_string());
 
       if (threads > 1)
       {
-        SPDLOG_DEBUG("{:20}", "FI_THREAD_FID");
+        LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "FI_THREAD_FID");
         // Enable thread safe mode (Does not work with psm2 provider)
         // fabric_hints_->domain_attr->threading = FI_THREAD_SAFE;
         // fabric_hints_->domain_attr->threading = FI_THREAD_FID;
@@ -867,7 +882,7 @@ public:
       }
       else
       {
-        SPDLOG_DEBUG("{:20}", "FI_THREAD_DOMAIN");
+        LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "FI_THREAD_DOMAIN");
         // we serialize everything
         fabric_hints_->domain_attr->threading = FI_THREAD_DOMAIN;
       }
@@ -875,11 +890,11 @@ public:
       // Enable resource management
       fabric_hints_->domain_attr->resource_mgmt = FI_RM_ENABLED;
 
-      SPDLOG_DEBUG("{:20} {}", "fabric endpoint", "RDM");
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "fabric endpoint", "RDM");
       fabric_hints_->ep_attr->type = FI_EP_RDM;
 
-      SPDLOG_DEBUG("{:20} {} {}.{}", "fabric info", "FI_VERSION", LIBFABRIC_FI_VERSION_MAJOR,
-          LIBFABRIC_FI_VERSION_MINOR);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {} {}.{}", "fabric info", "FI_VERSION",
+          LIBFABRIC_FI_VERSION_MAJOR, LIBFABRIC_FI_VERSION_MINOR);
 
       ret = fi_getinfo(FI_VERSION(LIBFABRIC_FI_VERSION_MAJOR, LIBFABRIC_FI_VERSION_MINOR), nullptr,
           nullptr, flags, fabric_hints_, &fabric_info_);
@@ -889,34 +904,34 @@ public:
       if (rootnode)
       {
         std::array<char, 8192> buf;
-        SPDLOG_TRACE("{:20} \n {}", "Fabric info",
+        LIBFATBAT_TRACE(bctrl_log, "{:<20} \n {}", "Fabric info",
             fi_tostr_r(buf.data(), buf.size(), fabric_info_, FI_TYPE_INFO));
       }
 
       int mrkey = (fabric_hints_->domain_attr->mr_mode & FI_MR_PROV_KEY) != 0;
-      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_MR_PROV_KEY", mrkey);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_MR_PROV_KEY", mrkey);
 
       bool context = (fabric_hints_->mode & FI_CONTEXT) != 0;
-      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_CONTEXT", context);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_CONTEXT", context);
 
       mrlocal = (fabric_hints_->domain_attr->mr_mode & FI_MR_LOCAL) != 0;
-      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_MR_LOCAL", mrlocal);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_MR_LOCAL", mrlocal);
 
       mrbind = (fabric_hints_->domain_attr->mr_mode & FI_MR_ENDPOINT) != 0;
-      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_MR_ENDPOINT", mrbind);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_MR_ENDPOINT", mrbind);
 
       /* Check if provider requires heterogeneous memory registration */
       mrhmem = (fabric_hints_->domain_attr->mr_mode & FI_MR_HMEM) != 0;
-      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_MR_HMEM", mrhmem);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_MR_HMEM", mrhmem);
       bool mrhalloc = (fabric_hints_->domain_attr->mr_mode & FI_MR_ALLOCATED) != 0;
-      SPDLOG_DEBUG("{:20} {:15} {}", "Requires", "FI_MR_ALLOCATED", mrhalloc);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_MR_ALLOCATED", mrhalloc);
 
-      SPDLOG_DEBUG("{:20}", "Creating fi_fabric");
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "Creating fi_fabric");
       ret = fi_fabric(fabric_info_->fabric_attr, &fabric_, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "Failed to get fi_fabric");
 
       // Allocate a domain.
-      SPDLOG_DEBUG("{:20}", "Allocating domain");
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "Allocating domain");
       ret = fi_domain(fabric_, fabric_info_, &fabric_domain_, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_domain");
 
@@ -925,19 +940,19 @@ public:
         [[maybe_unused]] auto scp =
             NS_DEBUG::cnb_deb.scope(NS_DEBUG::(void*) (this), "GNI memory registration block");
 
-        SPDLOG_ERROR(cnb_err, debug(str<>("-------"), "GNI String values"));
+        LIBFATBAT_ERROR(bctrl_log, debug(str<>("-------"), "GNI String values"));
         // Dump out all vars for debug purposes
         for (auto& gni_data : gni_strs)
         {
           _set_check_domain_op_value<char const*>(
               gni_data.first, 0, gni_data.second.c_str(), false);
         }
-        SPDLOG_ERROR(cnb_err, debug(str<>("-------"), "GNI Int values"));
+        LIBFATBAT_ERROR(bctrl_log, debug(str<>("-------"), "GNI Int values"));
         for (auto& gni_data : gni_ints)
         {
           _set_check_domain_op_value<uint32_t>(gni_data.first, 0, gni_data.second.c_str(), false);
         }
-        SPDLOG_ERROR(cnb_err, debug(str<>("-------")));
+        LIBFATBAT_ERROR(bctrl_log, debug(str<>("-------")));
 
         // --------------------------
         // GNI_MR_CACHE
@@ -960,7 +975,7 @@ public:
         // Enable lazy deregistration in MR cache
         //
         int32_t enable = 1;
-        SPDLOG_DEBUG("{:20}", "setting GNI_MR_CACHE_LAZY_DEREG")));
+        LIBFATBAT_DEBUG(bctrl_log,"{:<20}", "setting GNI_MR_CACHE_LAZY_DEREG")));
         _set_check_domain_op_value<int32_t>(
             GNI_MR_CACHE_LAZY_DEREG, enable, "GNI_MR_CACHE_LAZY_DEREG");
 
@@ -1002,7 +1017,7 @@ public:
     template <typename T>
     int _set_check_domain_op_value(int op, T value, char const* info, bool set = true)
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
       static struct fi_gni_ops_domain* gni_domain_ops = nullptr;
       int ret = 0;
 
@@ -1010,7 +1025,7 @@ public:
       {
         ret = fi_open_ops(
             &fabric_domain_->fid, FI_GNI_DOMAIN_OPS_1, 0, (void**) &gni_domain_ops, nullptr);
-        SPDLOG_ERROR(cnb_deb,
+        LIBFATBAT_ERROR(bctrl_log,
             debug(
                 str<>("gni open ops"), (ret == 0 ? "OK" : "FAIL"), NS_DEBUG::ptr(gni_domain_ops)));
       }
@@ -1021,7 +1036,8 @@ public:
         ret = gni_domain_ops->set_val(
             &fabric_domain_->fid, (dom_ops_val_t) (op), reinterpret_cast<void*>(&value));
 
-        SPDLOG_DEBUG("{:20} {} {} ", "gni set ops val"), value, (ret == 0 ? "OK" : "FAIL")));
+        LIBFATBAT_DEBUG(
+            bctrl_log, "{:<20} {} {} ", "gni set ops val", value, (ret == 0 ? "OK" : "FAIL"));
       }
 
       // Get the value (so we can check that the value we set is now returned)
@@ -1029,13 +1045,13 @@ public:
       ret = gni_domain_ops->get_val(&fabric_domain_->fid, (dom_ops_val_t) (op), &new_value);
       if constexpr (std::is_integral<T>::value)
       {
-        SPDLOG_ERROR(cnb_err,
+        LIBFATBAT_ERROR(cnb_err,
             debug(str<>("gni op val"), (ret == 0 ? "OK" : "FAIL"), info, hex<8>(new_value)));
       }
       else
       {
-        SPDLOG_ERROR(
-            cnb_err, debug(str<>("gni op val"), (ret == 0 ? "OK" : "FAIL"), info, new_value));
+        LIBFATBAT_ERROR(
+            bctrl_log, debug(str<>("gni op val"), (ret == 0 ? "OK" : "FAIL"), info, new_value));
       }
       //
       if (ret) throw libfatbat::fabric_error(ret, std::string("setting ") + info);
@@ -1054,8 +1070,8 @@ public:
       // and we do not create two endpoint with the same src address
       struct fi_info* hints = set_src_dst_addresses(info, tx);
 
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
-      SPDLOG_DEBUG("{:20} {}", "Got info mode", (info->mode & FI_NOTIFY_FLAGS_ONLY));
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "Got info mode", (info->mode & FI_NOTIFY_FLAGS_ONLY));
 
       struct fid_ep* ep;
       int ret = fi_endpoint(domain, hints, &ep, nullptr);
@@ -1064,7 +1080,7 @@ public:
         throw libfatbat::fabric_error(ret, "fi_endpoint (too many threadlocal endpoints?)");
       }
       fi_freeinfo(hints);
-      SPDLOG_DEBUG("{:20} {}", "new_endpoint_active", (void*) (ep));
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "new_endpoint_active", (void*) (ep));
       return ep;
     }
 
@@ -1075,9 +1091,9 @@ public:
       // don't allow multiple threads to call endpoint create at the same time
       scoped_lock lock(controller_mutex_);
 
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
-      SPDLOG_DEBUG("{:20}", "fi_dupinfo");
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "fi_dupinfo");
       struct fi_info* hints = fi_dupinfo(info);
       if (!hints) throw libfatbat::fabric_error(0, "fi_dupinfo");
 
@@ -1095,7 +1111,8 @@ public:
         context_count = std::min(new_hints->domain_attr->rx_ctx_cnt, threads);
       }
 
-      SPDLOG_TRACE("{:20} Tx {}, Threads {}, tx_ctx_cnt {}, rx_ctx_cnt {}, context_count {}",
+      LIBFATBAT_TRACE(bctrl_log,
+          "{:<20} Tx {}, Threads {}, tx_ctx_cnt {}, rx_ctx_cnt {}, context_count {}",
           "scalable endpoint", tx, threads, new_hints->domain_attr->tx_ctx_cnt,
           new_hints->domain_attr->rx_ctx_cnt, context_count);
 
@@ -1106,7 +1123,7 @@ public:
       struct fid_ep* ep;
       ret = fi_scalable_ep(domain, new_hints, &ep, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_scalable_ep");
-      SPDLOG_DEBUG("{:20} {}", "new_endpoint_scalable", (void*) (ep));
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "new_endpoint_scalable", (void*) (ep));
       fi_freeinfo(hints);
       return ep;
     }
@@ -1115,7 +1132,7 @@ public:
     endpoint_wrapper& get_rx_endpoint()
     {
       // static auto rx = NS_DEBUG::cnb_deb.make_timer(1, NS_DEBUG::str<>("get_rx_endpoint"));
-      // SPDLOG_ERROR(cnb_deb, timed(rx));
+      // LIBFATBAT_ERROR(cnb_deb, timed(rx));
 
       if (endpoint_type_ == endpoint_type::scalableTxRx)
       {
@@ -1125,20 +1142,20 @@ public:
           bool ok = rx_endpoints_.pop(ep);
           if (!ok)
           {
-            SPDLOG_ERROR("Scalable Ep pop rx ep {}, tx cq {}, rx cq {}", (void*) (ep.get_ep()),
-                (void*) (ep.get_tx_cq()), (void*) (ep.get_rx_cq()));
+            LIBFATBAT_ERROR(bctrl_log, "Scalable Ep pop rx ep {}, tx cq {}, rx cq {}",
+                (void*) (ep.get_ep()), (void*) (ep.get_tx_cq()), (void*) (ep.get_rx_cq()));
             throw std::runtime_error("rx endpoint wrapper pop fail");
           }
           eps_->tl_srx_ = stack_endpoint(
               ep.get_ep(), ep.get_rx_cq(), ep.get_tx_cq(), ep.get_name(), &rx_endpoints_);
-          SPDLOG_TRACE("{:20} pop rx ep {}, tx cq {}, rx cq {}", "Scalable Ep",
+          LIBFATBAT_TRACE(bctrl_log, "{:<20} pop rx ep {}, tx cq {}, rx cq {}", "Scalable Ep",
               (void*) (eps_->tl_srx_.get_ep()), (void*) (eps_->tl_srx_.get_tx_cq()),
               (void*) (eps_->tl_srx_.get_rx_cq()));
         }
         return eps_->tl_srx_.endpoint_;
       }
       {
-        // SPDLOG_SCOPE("{} {} {}", (void*) this, __func__, "single/shared rx endpoint");
+        // LIBFATBAT_SCOPE("{} {} {}", (void*) this, __func__, "single/shared rx endpoint");
         // otherwise just return the normal Rx endpoint
         return eps_->ep_rx_;
       }
@@ -1151,8 +1168,8 @@ public:
       {
         if (eps_->tl_tx_.get_ep() == nullptr)
         {
-          SPDLOG_DEBUG(
-              "{:20} {} {} {}", "get_tx_endpoint", (void*) (this), __func__, "threadlocal");
+          LIBFATBAT_DEBUG(bctrl_log, "{:<20} {} {} {}", "get_tx_endpoint", (void*) (this), __func__,
+              "threadlocal");
 
           // create a completion queue for tx endpoint
           fabric_info_->tx_attr->op_flags |= (FI_INJECT_COMPLETE | FI_COMPLETION);
@@ -1169,7 +1186,7 @@ public:
           enable_endpoint(ep_tx, "tx threadlocal");
 
           // set threadlocal endpoint wrapper
-          SPDLOG_TRACE("{:20} create Tx ep {}, tx cq {}, rx cq {}", "Threadlocal Ep",
+          LIBFATBAT_TRACE(bctrl_log, "{:<20} create Tx ep {}, tx cq {}, rx cq {}", "Threadlocal Ep",
               (void*) (ep_tx), (void*) (tx_cq), (void*) (nullptr));
           // for cleaning up at termination
           endpoint_wrapper ep(ep_tx, nullptr, tx_cq, "tx threadlocal");
@@ -1187,13 +1204,13 @@ public:
           bool ok = tx_endpoints_.pop(ep);
           if (!ok)
           {
-            SPDLOG_ERROR("Scalable Ep pop tx ep {}, tx cq {}, rx cq {}", (void*) (ep.get_ep()),
-                (void*) (ep.get_tx_cq()), (void*) (ep.get_rx_cq()));
+            LIBFATBAT_ERROR(bctrl_log, "Scalable Ep pop tx ep {}, tx cq {}, rx cq {}",
+                (void*) (ep.get_ep()), (void*) (ep.get_tx_cq()), (void*) (ep.get_rx_cq()));
             throw std::runtime_error("tx endpoint wrapper pop fail");
           }
           eps_->tl_stx_ = stack_endpoint(
               ep.get_ep(), ep.get_rx_cq(), ep.get_tx_cq(), ep.get_name(), &tx_endpoints_);
-          SPDLOG_TRACE("{:20} pop tx ep {}, tx cq {}, rx cq {}", "Scalable Ep",
+          LIBFATBAT_TRACE(bctrl_log, "{:<20} pop tx ep {}, tx cq {}, rx cq {}", "Scalable Ep",
               (void*) (eps_->tl_stx_.get_ep()), (void*) (eps_->tl_stx_.get_tx_cq()),
               (void*) (eps_->tl_stx_.get_rx_cq()));
         }
@@ -1201,7 +1218,7 @@ public:
       }
       else if (endpoint_type_ == endpoint_type::multiple) { return eps_->ep_tx_; }
       {
-        // SPDLOG_TRACE("{:20} {} {} {}", "get_tx_endpoint", (void*) (this), __func__,
+        // LIBFATBAT_TRACE("{:<20} {} {} {}", "get_tx_endpoint", (void*) (this), __func__,
         //     "single/shared endpoint");
         // single : shared tx/rx endpoint
         return eps_->ep_rx_;
@@ -1211,9 +1228,9 @@ public:
     // --------------------------------------------------------------------
     void bind_address_vector_to_endpoint(struct fid_ep* endpoint, struct fid_av* av)
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
-      SPDLOG_DEBUG("{:20} {}", "Binding AV to", (void*) (endpoint));
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "Binding AV to", (void*) (endpoint));
       int ret = fi_ep_bind(endpoint, &av->fid, 0);
       if (ret) throw libfatbat::fabric_error(ret, "bind address_vector");
     }
@@ -1222,9 +1239,9 @@ public:
     void bind_queue_to_endpoint(
         struct fid_ep* endpoint, struct fid_cq*& cq, uint32_t cqtype, char const* type)
     {
-      SPDLOG_SCOPE("{} {}, {}", (void*) (this), __func__, type);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}, {}", (void*) (this), __func__, type);
 
-      SPDLOG_DEBUG("{:20} {} {}", "Binding CQ to", (void*) (endpoint), type);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {} {}", "Binding CQ to", (void*) (endpoint), type);
       int ret = fi_ep_bind(endpoint, &cq->fid, cqtype);
       if (ret) throw libfatbat::fabric_error(ret, "bind cq");
     }
@@ -1232,7 +1249,7 @@ public:
     // --------------------------------------------------------------------
     fid_cq* bind_tx_queue_to_rx_endpoint(struct fi_info* info, struct fid_ep* ep)
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
       info->tx_attr->op_flags |= (FI_INJECT_COMPLETE | FI_COMPLETION);
       fid_cq* tx_cq = create_completion_queue(fabric_domain_, info->tx_attr->size, "tx->rx");
       // shared send/recv endpoint - bind send cq to the recv endpoint
@@ -1243,8 +1260,8 @@ public:
     // --------------------------------------------------------------------
     void enable_endpoint(struct fid_ep* endpoint, char const* type)
     {
-      SPDLOG_SCOPE("{} {}, {}", (void*) (this), __func__, type);
-      SPDLOG_DEBUG("{:20} {} {}", "enable_endpoint", (void*) (endpoint), type);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}, {}", (void*) (this), __func__, type);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {} {}", "enable_endpoint", (void*) (endpoint), type);
       int ret = fi_enable(endpoint);
       if (ret) throw libfatbat::fabric_error(ret, "fi_enable");
     }
@@ -1252,7 +1269,7 @@ public:
     // --------------------------------------------------------------------
     locality get_endpoint_address(struct fid* id)
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
       locality::locality_data local_addr;
       std::size_t addrlen = locality_defs::array_size;
@@ -1268,7 +1285,7 @@ public:
     // --------------------------------------------------------------------
     fid_pep* create_passive_endpoint(struct fid_fabric* fabric, struct fi_info* info)
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
       struct fid_pep* ep;
       int ret = fi_passive_ep(fabric, info, &ep, nullptr);
@@ -1324,11 +1341,12 @@ public:
         addr.set_fi_address(fi_addr_t(i));
         if ((ret == 0) && (addrlen <= locality_defs::array_size))
         {
-          SPDLOG_DEBUG("{:20} {:04} {}", "address vector", i, addr.to_str(av_));
+          LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:04} {}", "address vector", i, addr.to_str(av_));
         }
         else
         {
-          SPDLOG_ERROR("address length error {} {}", addrlen, locality_defs::array_size);
+          LIBFATBAT_ERROR(
+              bctrl_log, "address length error {} {}", addrlen, locality_defs::array_size);
           throw std::runtime_error("debug_print_av_vector : address vector "
                                    "traversal failure");
         }
@@ -1424,7 +1442,7 @@ public:
     // --------------------------------------------------------------------
     struct fid_cq* create_completion_queue(struct fid_domain* domain, size_t size, char const* type)
     {
-      SPDLOG_SCOPE("{} {}, {}", (void*) (this), __func__, type);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}, {}", (void*) (this), __func__, type);
 
       struct fid_cq* cq;
       fi_cq_attr cq_attr = {};
@@ -1436,14 +1454,14 @@ public:
       // open completion queue on fabric domain and set context to null
       int ret = fi_cq_open(domain, &cq_attr, &cq, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_cq_open");
-      SPDLOG_TRACE("{:20} {} size {} {}", "CQ", (void*) cq, size, type);
+      LIBFATBAT_TRACE(bctrl_log, "{:<20} {} size {} {}", "CQ", (void*) cq, size, type);
       return cq;
     }
 
     // --------------------------------------------------------------------
     fid_av* create_address_vector(struct fi_info* info, int N, int num_rx_contexts)
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
       fid_av* av;
       fi_av_attr av_attr = {fi_av_type(0), 0, 0, 0, nullptr, nullptr, 0};
@@ -1455,7 +1473,7 @@ public:
       int rx_ctx_bits = 0;
 #ifdef RX_CONTEXTS_SUPPORT
       while (num_rx_contexts >> ++rx_ctx_bits);
-      SPDLOG_DEBUG("{:20} {}", "rx_ctx_bits", rx_ctx_bits);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "rx_ctx_bits", rx_ctx_bits);
 #endif
       av_attr.rx_ctx_bits = rx_ctx_bits;
       // if contexts is nonzero, then we are using a single scalable endpoint
@@ -1464,11 +1482,11 @@ public:
       if (info->domain_attr->av_type != FI_AV_UNSPEC) { av_attr.type = info->domain_attr->av_type; }
       else
       {
-        SPDLOG_DEBUG("{:20}", "map FI_AV_TABLE");
+        LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "map FI_AV_TABLE");
         av_attr.type = FI_AV_TABLE;
       }
 
-      SPDLOG_DEBUG("{:20}", "AV Create");
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "AV Create");
       int ret = fi_av_open(fabric_domain_, &av_attr, &av, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_av_open");
       return av;
@@ -1480,20 +1498,23 @@ public:
     // --------------------------------------------------------------------
     locality insert_address(fid_av* av, locality const& address)
     {
-      SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
-      SPDLOG_TRACE("{:20} {} {}", "AV insert_address", address.to_str(av), (void*) av);
+      LIBFATBAT_TRACE(
+          bctrl_log, "{:<20} {} {}", "AV insert_address", address.to_str(av), (void*) av);
       fi_addr_t fi_addr = 0xffff'ffff;
       int ret = fi_av_insert(av, address.fabric_data().data(), 1, &fi_addr, 0, nullptr);
       if (ret < 0) { throw libfatbat::fabric_error(ret, "fi_av_insert"); }
       else if (ret == 0)
       {
-        SPDLOG_ERROR("fi_av_insert called with existing address {}", address.to_str(av));
+        LIBFATBAT_ERROR(
+            bctrl_log, "fi_av_insert called with existing address {}", address.to_str(av));
         libfatbat::fabric_error(ret, "fi_av_insert did not return 1");
       }
       // address was generated correctly, now update the locality with the fi_addr
       locality new_locality(address, fi_addr, av);
-      SPDLOG_TRACE("{:20} {:04} {}", "AV add rank", fi_addr, new_locality.to_str(av));
+      LIBFATBAT_TRACE(
+          bctrl_log, "{:<20} {:04} {}", "AV add rank", fi_addr, new_locality.to_str(av));
       return new_locality;
     }
   };

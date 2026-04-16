@@ -23,15 +23,14 @@
 #include "pmi_helper.hpp"
 #include "polling_helper.hpp"
 
+// ------------------------------------------------------------------
+inline auto srbench_log = libfatbat::log::create("SendRecvBench");
+
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
   // -------------------------------------------------
-  // define log level settings when enabled
-#if defined(SPDLOG_ACTIVE_LEVEL) && (SPDLOG_ACTIVE_LEVEL != SPDLOG_LEVEL_OFF)
-  spdlog::set_pattern("[%^%-8l%$]%t| %v");
-  spdlog::set_level(spdlog::level::warn);
-#endif
+  libfatbat::log::init_from_env();
 
   namespace po = boost::program_options;
   po::options_description desc("Options");
@@ -58,12 +57,12 @@ int main(int argc, char** argv)
 
   if (iterations == 0)
   {
-    SPDLOG_ERROR("iterations must be > 0");
+    LIBFATBAT_ERROR(srbench_log, "iterations must be > 0");
     return EXIT_FAILURE;
   }
   if (min_shift > max_shift)
   {
-    SPDLOG_ERROR("min-shift must be <= max-shift");
+    LIBFATBAT_ERROR(srbench_log, "min-shift must be <= max-shift");
     return EXIT_FAILURE;
   }
 
@@ -82,7 +81,7 @@ int main(int argc, char** argv)
 
   if (size != 2)
   {
-    if (rank == 0) { SPDLOG_ERROR("This benchmark requires exactly 2 ranks."); }
+    if (rank == 0) { LIBFATBAT_ERROR(srbench_log, "This benchmark requires exactly 2 ranks."); }
     pmi.fence();
     pmi.finalize_PMI();
     return EXIT_FAILURE;
@@ -193,8 +192,9 @@ int main(int argc, char** argv)
       uint32_t const recvs_done = (uint32_t) controller.recvs_complete_ - recvs_complete_before;
       if (sends_done != iterations || recvs_done != iterations)
       {
-        SPDLOG_ERROR("rank {} counter mismatch for msg_size {}: sends {}/{}, recvs {}/{}", rank,
-            msg_size, sends_done, iterations, recvs_done, iterations);
+        LIBFATBAT_ERROR(srbench_log,
+            "rank {} counter mismatch for msg_size {}: sends {}/{}, recvs {}/{}", rank, msg_size,
+            sends_done, iterations, recvs_done, iterations);
         throw std::runtime_error("counter mismatch");
       }
 

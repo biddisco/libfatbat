@@ -17,6 +17,9 @@
 //
 #include "controller.hpp"
 
+// ------------------------------------------------------------------
+inline auto pollhelp_log = libfatbat::log::create("PollHelp");
+
 // ----------------------------------------------------------------------------
 // Spawns a background thread that polls until stop_flag is set.
 inline std::thread spawn_poll_thread(
@@ -30,14 +33,15 @@ inline std::thread spawn_poll_thread(
       auto progress = ctrl->poll_for_work_completions(nullptr);
       if (progress.num() > 0)
       {
-        SPDLOG_DEBUG("{:20} rank {}: sends: {}/{}, recvs: {}/{}, reads: {}/{}, writes: {}/{},",
+        LIBFATBAT_DEBUG(pollhelp_log,
+            "{:<20} rank {}: sends: {}/{}, recvs: {}/{}, reads: {}/{}, writes: {}/{},",
             "Polling loop", rank, (uint32_t) ctrl->sends_complete_, (uint32_t) ctrl->sends_posted_,
             (uint32_t) ctrl->recvs_complete_, (uint32_t) ctrl->recvs_posted_,
             (uint32_t) ctrl->reads_complete_, (uint32_t) ctrl->reads_posted_,
             (uint32_t) ctrl->writes_complete_, (uint32_t) ctrl->writes_posted_);
       }
     }
-    SPDLOG_DEBUG("{:20} rank {}", "Polling stopped", rank);
+    LIBFATBAT_DEBUG(pollhelp_log, "{:<20} rank {}", "Polling stopped", rank);
   });
 }
 
@@ -61,12 +65,14 @@ struct poller_guard
 
   ~poller_guard()
   {
-    SPDLOG_DEBUG("{:20} rank {} ({} threads)", "Polling stopping", rank_, threads_.size());
+    LIBFATBAT_DEBUG(
+        pollhelp_log, "{:<20} rank {} ({} threads)", "Polling stopping", rank_, threads_.size());
     stop.store(true, std::memory_order_release);
     for (auto& t : threads_)
     {
       if (t.joinable()) t.join();
     }
-    SPDLOG_DEBUG("{:20} rank {} ({} threads)", "Polling stopped", rank_, threads_.size());
+    LIBFATBAT_DEBUG(
+        pollhelp_log, "{:<20} rank {} ({} threads)", "Polling stopped", rank_, threads_.size());
   }
 };

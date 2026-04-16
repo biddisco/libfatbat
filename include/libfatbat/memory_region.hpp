@@ -29,6 +29,8 @@
 
 namespace libfatbat {
 
+  inline auto memrgn_log = libfatbat::log::create("Region");
+
   /*
 struct fi_mr_attr {
     union {
@@ -71,7 +73,7 @@ struct fi_mr_attr {
         size_t len, uint64_t access_flags, uint64_t offset, uint64_t request_key,
         struct fid_mr** mr)
     {
-      SPDLOG_SCOPE("{} {} {:#10x} {:05}", __func__, buf, len, device_id);
+      LIBFATBAT_SCOPE(memrgn_log, "{} {} {:#10x} {:05}", __func__, buf, len, device_id);
       //
       struct iovec addresses = {/*.iov_base = */ const_cast<void*>(buf), /*.iov_len = */ len};
       fi_mr_attr attr = {
@@ -105,10 +107,10 @@ struct fi_mr_attr {
         attr.device.cuda = handle;
 # if defined(OOMPH_DEVICE_CUDA)
         attr.iface = FI_HMEM_CUDA;
-        SPDLOG_TRACE("CUDA set device id {} {}", device_id, handle);
+        LIBFATBAT_TRACE(memrgn_log, "CUDA set device id {} {}", device_id, handle);
 # elif defined(OOMPH_DEVICE_HIP)
         attr.iface = FI_HMEM_ROCR;
-        SPDLOG_TRACE("HIP set device id {} {}", device_id, handle);
+        LIBFATBAT_TRACE(memrgn_log, "HIP set device id {} {}", device_id, handle);
 # endif
 #endif
       }
@@ -275,16 +277,16 @@ namespace libfatbat {
   {
     if (region_ /*&& !get_user_region()*/)
     {
-      SPDLOG_TRACE("release {}", (void*) region_);
+      LIBFATBAT_TRACE(memrgn_log, "{:<20} {} ", "release", (void*) region_);
       //
       if (region_provider::unregister_memory(region_))
       {
-        SPDLOG_ERROR("{:20} mr failed {} ", "fi_close", *this);
+        LIBFATBAT_ERROR(memrgn_log, "{:<20} mr failed {} ", "fi_close", *this);
         return -1;
       }
       else
       {
-        SPDLOG_TRACE("{:20} {}", "de-Registered", *this);
+        LIBFATBAT_TRACE(memrgn_log, "{:<20} {}", "de-Registered", *this);
       }
       region_ = nullptr;
     }
@@ -345,11 +347,14 @@ namespace libfatbat {
       region_ = nullptr;
       //
       base_addr_ = memory_handle::address_;
-      SPDLOG_TRACE("{:20} {} {}", "memory_segment", (void*) this, device_id);
+      LIBFATBAT_TRACE(memrgn_log, "{:<20} {} {}", "memory_segment", (void*) this, device_id);
 
       int ret = region_provider::fi_register_memory(
           pd, device_id, buffer, length, region_provider::access_flags(), 0, key++, &(region_));
-      if (!ret) { SPDLOG_TRACE("{:20} {} {}", "Registered region", device_id, (void*) this); }
+      if (!ret)
+      {
+        LIBFATBAT_TRACE(memrgn_log, "{:<20} {} {}", "Registered region", device_id, (void*) this);
+      }
 
       if (bind_mr)
       {
@@ -357,14 +362,14 @@ namespace libfatbat {
         if (ret) { throw libfatbat::fabric_error(int(ret), "fi_mr_bind"); }
         else
         {
-          SPDLOG_TRACE("Bound region {}", (void*) this);
+          LIBFATBAT_TRACE(memrgn_log, "Bound region {}", (void*) this);
         }
 
         ret = fi_mr_enable(region_);
         if (ret) { throw libfatbat::fabric_error(int(ret), "fi_mr_enable"); }
         else
         {
-          SPDLOG_TRACE("Enabled region {}", (void*) this);
+          LIBFATBAT_TRACE(memrgn_log, "Enabled region {}", (void*) this);
         }
       }
     }
@@ -387,7 +392,7 @@ namespace libfatbat {
     friend std::ostream& operator<<(std::ostream& os, memory_segment const& region)
     {
       (void) region;
-#ifdef LIBFATBAT_LOGGING_ENABLED
+#ifdef LIBFATBAT_GING_ENABLED
       os << *static_cast<memory_handle const*>(&region)
          << fmt::format("base_addr {}", (void*) (region.base_addr_));
 #endif

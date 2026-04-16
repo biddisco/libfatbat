@@ -22,6 +22,9 @@
 #include "operation_context.hpp"
 
 // --------------------------------------------------------------------
+inline auto comm_log = libfatbat::log::create("Comm");
+
+// --------------------------------------------------------------------
 // A convenience memory context to manage memory regions
 // we use this to connect hwmalloc with our code
 // --------------------------------------------------------------------
@@ -122,7 +125,8 @@ struct communicator
     operation_context* request;
     while (!queue_cache.pop(request))
     {
-      SPDLOG_ERROR("{:20} {}", "make_operation_context", "unable to get request from cache");
+      LIBFATBAT_ERROR(
+          comm_log, "{:<20} {}", "make_operation_context", "unable to get request from cache");
     }
     request->m_callback = std::move(cb);
     return request;
@@ -153,8 +157,8 @@ struct communicator
       if (ret == 0) { return; }
       else if (ret == -FI_EAGAIN)
       {
-        SPDLOG_TRACE(
-            "{:20} Reposting : {}", "FI_EAGAIN", msg);    // , std::forward<Args>(args)...);
+        LIBFATBAT_TRACE(comm_log, "{:<20} Reposting : {}", "FI_EAGAIN",
+            msg);    // , std::forward<Args>(args)...);
         // no point stressing the system
         m_controller->poll_for_work_completions(this);
       }
@@ -162,7 +166,7 @@ struct communicator
       {
         // if a node has failed, we can in principle recover
         // @TODO : put something better here to recover from error
-        SPDLOG_ERROR("{:20}", "No destination endpoint, terminating.");
+        LIBFATBAT_ERROR(comm_log, "{:<20}", "No destination endpoint, terminating.");
         std::terminate();
       }
       else if (ret) { throw libfatbat::fabric_error(int(ret), msg); }
@@ -174,8 +178,9 @@ struct communicator
   void send_tagged_region(region_type const& send_region, std::size_t size, fi_addr_t dst_addr_,
       uint64_t tag_, operation_context* ctxt)
   {
-    SPDLOG_DEBUG("{:20} {:02} {} tag {} context {:p} tx endpoint {:p}", "send_tagged_region",
-        dst_addr_, send_region, tag_, (void*) (ctxt), (void*) (m_tx_endpoint.get_ep()));
+    LIBFATBAT_DEBUG(comm_log, "{:<20} {:02} {} tag {} context {:p} tx endpoint {:p}",
+        "send_tagged_region", dst_addr_, send_region, tag_, (void*) (ctxt),
+        (void*) (m_tx_endpoint.get_ep()));
     execute_fi_function(fi_tsend, "fi_tsend", m_tx_endpoint.get_ep(), send_region.get_address(),
         size, send_region.get_local_key(), dst_addr_, tag_, ctxt);
   }
@@ -185,8 +190,8 @@ struct communicator
   void inject_tagged_region(
       region_type const& send_region, std::size_t size, fi_addr_t dst_addr_, uint64_t tag_)
   {
-    SPDLOG_DEBUG("{:20} {} {} tag {} tx endpoint {:p}", "inject tagged", dst_addr_, send_region,
-        tag_, (void*) (m_tx_endpoint.get_ep()));
+    LIBFATBAT_DEBUG(comm_log, "{:<20} {} {} tag {} tx endpoint {:p}", "inject tagged", dst_addr_,
+        send_region, tag_, (void*) (m_tx_endpoint.get_ep()));
     execute_fi_function(fi_tinject, "fi_tinject", m_tx_endpoint.get_ep(), send_region.get_address(),
         size, dst_addr_, tag_);
   }
@@ -198,8 +203,9 @@ struct communicator
   void recv_tagged_region(region_type const& recv_region, std::size_t size, fi_addr_t src_addr_,
       uint64_t tag_, operation_context* ctxt)
   {
-    SPDLOG_DEBUG("{:20} {:02} {} tag {} context {:p} rx endpoint {:p}", "recv_tagged_region",
-        src_addr_, recv_region, tag_, (void*) (ctxt), (void*) (m_rx_endpoint.get_ep()));
+    LIBFATBAT_DEBUG(comm_log, "{:<20} {:02} {} tag {} context {:p} rx endpoint {:p}",
+        "recv_tagged_region", src_addr_, recv_region, tag_, (void*) (ctxt),
+        (void*) (m_rx_endpoint.get_ep()));
     constexpr uint64_t ignore = 0;
     execute_fi_function(fi_trecv, "fi_trecv", m_rx_endpoint.get_ep(), recv_region.get_address(),
         size, recv_region.get_local_key(), src_addr_, tag_, ignore, ctxt);
@@ -211,8 +217,8 @@ struct communicator
       void* remote_addr, uint64_t remote_key, operation_context* ctxt)
   {
     m_controller->reads_posted_++;
-    SPDLOG_DEBUG(
-        "{:20} {:02} {} context {:p} rx endpoint {:p} size {:#10x} rem_addr {:p} rem_key {:#08x}",
+    LIBFATBAT_DEBUG(comm_log,
+        "{:<20} {:02} {} context {:p} rx endpoint {:p} size {:#10x} rem_addr {:p} rem_key {:#08x}",
         "read_remote", rem_rank_, recv_region, (void*) (ctxt), (void*) (m_tx_endpoint.get_ep()),
         size, remote_addr, remote_key);
     execute_fi_function(fi_read, "fi_read", m_tx_endpoint.get_ep(), recv_region.get_address(), size,
@@ -223,7 +229,7 @@ struct communicator
   operation_context* read(memory_context::heap_type::pointer const& ptr, std::size_t size,
       rank_type dst, void* remote_addr, uint64_t remote_key, request_callback_type&& cb)
   {
-    SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
 
 #if LIBFATBAT_ENABLE_DEVICE
     auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
@@ -242,7 +248,7 @@ struct communicator
   operation_context* send(memory_context::heap_type::pointer const& ptr, std::size_t size,
       rank_type dst, tag_type tag, request_callback_type&& cb)
   {
-    SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
     std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
 
 #if LIBFATBAT_ENABLE_DEVICE
@@ -269,15 +275,16 @@ struct communicator
     // construct request which is also an operation context
     auto request = make_operation_context(std::move(cb));
 
-    SPDLOG_DEBUG("{:20} thisrank {} src/dst {} reg:{} tag {} stag {:#08x} addr {} size {} reg "
-                 "size {:06} op_ctx {:p} req {:p}",
+    LIBFATBAT_DEBUG(comm_log,
+        "{:<20} thisrank {} src/dst {} reg:{} tag {} stag {:#08x} addr {} size {} reg "
+        "size {:06} op_ctx {:p} req {:p}",
         "send", rank(), dst, reg, tag, stag, (void*) (reg.get_address()), size, reg.get_size(),
         (void*) request, (void*) request);
 #if LIBFATBAT_ENABLE_DEVICE
     if (!ptr.on_device())
     {
-      SPDLOG_DEBUG("{:20} mem {}", "send region CRC32",
-          libfatbat::logging::mem_crc32(reg.get_address(), size));
+      LIBFATBAT_DEBUG(comm_log, "{:<20} mem {}", "send region CRC32",
+          libfatbat::log::mem_crc32(reg.get_address(), size));
     }
 #endif
 
@@ -289,7 +296,7 @@ struct communicator
   operation_context* recv(memory_context::heap_type::pointer& ptr, std::size_t size, rank_type src,
       tag_type tag, request_callback_type&& cb)
   {
-    SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+    LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
     std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
 
 #if LIBFATBAT_ENABLE_DEVICE
@@ -301,16 +308,17 @@ struct communicator
     m_controller->recvs_posted_++;
     auto request = make_operation_context(std::move(cb));
 
-    SPDLOG_DEBUG("{:20} thisrank {} src/dst {} tag {} stag {:#08x} addr {:p} size {:#06x} reg "
-                 "size {:#06x} op_ctx {:p} req {:p}",
+    LIBFATBAT_DEBUG(comm_log,
+        "{:<20} thisrank {} src/dst {} tag {} stag {:#08x} addr {:p} size {:#06x} reg "
+        "size {:#06x} op_ctx {:p} req {:p}",
         "recv", rank(), src, tag, stag, (void*) (reg.get_address()), size, reg.get_size(),
         (void*) request, (void*) request);
 
 #if LIBFATBAT_ENABLE_DEVICE
     if (!ptr.on_device())
     {
-      SPDLOG_DEBUG("{:20} mem {}", "recv region CRC32",
-          libfatbat::logging::mem_crc32(reg.get_address(), size));
+      LIBFATBAT_DEBUG(comm_log, "{:<20} mem {}", "recv region CRC32",
+          libfatbat::log::mem_crc32(reg.get_address(), size));
     }
 #endif
 
@@ -332,12 +340,12 @@ struct communicator
     // work through ready callbacks, which were pushed to the queue
     // (by other threads)
     m_send_cb_queue.consume_all([](operation_context* req) {
-      SPDLOG_SCOPE("{} {:p}", "m_send_cb_queue.consume_all", (void*) (req));
+      LIBFATBAT_SCOPE(comm_log, "{} {:p}", "m_send_cb_queue.consume_all", (void*) (req));
       req->invoke_cb();
     });
 
     m_recv_cb_queue.consume_all([](operation_context* req) {
-      SPDLOG_SCOPE("{} {:p}", "m_recv_cb_queue.consume_all", (void*) (req));
+      LIBFATBAT_SCOPE(comm_log, "{} {:p}", "m_recv_cb_queue.consume_all", (void*) (req));
       req->invoke_cb();
     });
   }

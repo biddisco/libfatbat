@@ -56,6 +56,8 @@
 
 namespace libfatbat {
 
+  inline auto locality_log = libfatbat::log::create("Locality");
+
   struct locality;
 
   // --------------------------------------------------------------------
@@ -91,7 +93,7 @@ namespace libfatbat {
       std::memcpy(&data_[0], &in_data[0], locality_defs::array_size);
       fi_address_ = 0;
       av_ = av;
-      SPDLOG_TRACE("{:20} {}", "explicit construct", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "explicit construct", to_str());
     }
 
     locality()
@@ -99,7 +101,7 @@ namespace libfatbat {
       std::memset(&data_[0], 0x00, locality_defs::array_size);
       fi_address_ = 0;
       av_ = nullptr;
-      SPDLOG_TRACE("{:20} {}", "default construct", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "default construct", to_str());
     }
 
     locality(locality const& other)
@@ -107,7 +109,7 @@ namespace libfatbat {
       , fi_address_(other.fi_address_)
       , av_(other.av_)
     {
-      SPDLOG_TRACE("{:20} {}", "copy construct", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "copy construct", to_str());
     }
 
     locality(locality const& other, fi_addr_t addr, struct fid_av* av)
@@ -115,7 +117,7 @@ namespace libfatbat {
       , fi_address_(addr)
       , av_(av)
     {
-      SPDLOG_TRACE("{:20} {}", "copy fi construct", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "copy fi construct", to_str());
     }
 
     locality(locality&& other)
@@ -123,13 +125,13 @@ namespace libfatbat {
       , fi_address_(other.fi_address_)
       , av_(other.av_)
     {
-      SPDLOG_TRACE("{:20} {}", "move construct", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "move construct", to_str());
     }
 
     // provided to support sockets mode bootstrap
     explicit locality(std::string const& address, std::string const& portnum)
     {
-      SPDLOG_TRACE("{:20} {}:{}", "explicit construct-2", address, portnum);
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}:{}", "explicit construct-2", address, portnum);
       //
       struct sockaddr_in socket_data;
       memset(&socket_data, 0, sizeof(socket_data));
@@ -140,7 +142,7 @@ namespace libfatbat {
       std::memcpy(&data_[0], &socket_data, locality_defs::array_size);
       fi_address_ = 0;
       av_ = nullptr;
-      SPDLOG_TRACE("{:20} {}", "string constructing", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "string constructing", to_str());
     }
 
     locality& operator=(locality const& other)
@@ -148,13 +150,13 @@ namespace libfatbat {
       data_ = other.data_;
       fi_address_ = other.fi_address_;
       av_ = other.av_;
-      SPDLOG_TRACE("{:20} {} {}", "copy operator", to_str(), other.to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}", "copy operator", to_str(), other.to_str());
       return *this;
     }
 
     bool operator==(locality const& other)
     {
-      SPDLOG_TRACE("{:20} {} {}", "equality operator", to_str(), other.to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}", "equality operator", to_str(), other.to_str());
       return std::memcmp(&data_, &other.data_, locality_defs::array_size) == 0;
     }
 
@@ -186,7 +188,7 @@ namespace libfatbat {
 private:
     friend bool operator==(locality const& lhs, locality const& rhs)
     {
-      SPDLOG_TRACE("{:20} {} {}", "equality friend", lhs.to_str(), rhs.to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}", "equality friend", lhs.to_str(), rhs.to_str());
       return ((lhs.data_ == rhs.data_) && (lhs.fi_address_ == rhs.fi_address_));
     }
 

@@ -12,13 +12,13 @@
 #include "libfatbat/logging.hpp"
 #include "pmi_helper.hpp"
 
+// ------------------------------------------------------------------
+inline auto pmiboot_log = libfatbat::log::create("PMIBoot");
+
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
-#if defined(SPDLOG_ACTIVE_LEVEL) && (SPDLOG_ACTIVE_LEVEL != SPDLOG_LEVEL_OFF)
-  spdlog::set_pattern("[%^%-8l%$]%t| %v");
-  spdlog::set_level(spdlog::level::trace);
-#endif
+  libfatbat::log::init_from_env();
 
   namespace po = boost::program_options;
   po::options_description desc("Options");
@@ -39,7 +39,7 @@ int main(int argc, char** argv)
   pmi.boot_PMI(&controller);
   pmi.finalize_PMI();
   {
-    SPDLOG_SCOPE("{}", "debug AV");
+    LIBFATBAT_SCOPE(pmiboot_log, "{}", "debug AV");
     controller.debug_print_av_vector(size);
   }
 }

@@ -15,6 +15,9 @@
 #include "operation_context.hpp"
 
 // --------------------------------------------------------------------
+inline auto ctrl_log = libfatbat::log::create("Ctrl");
+
+// --------------------------------------------------------------------
 class test_controller : public libfatbat::controller_base<test_controller>
 {
   public:
@@ -57,7 +60,7 @@ class test_controller : public libfatbat::controller_base<test_controller>
   // --------------------------------------------------------------------
   int poll_send_queue(fid_cq* tx_cq, void* user_data)
   {
-    // SPDLOG_SCOPE("{} tx_cq {} {}", (void*) (this), (void*) (tx_cq), __func__);
+    LIBFATBAT_SCOPE(ctrl_log, "{} tx_cq {} {}", (void*) (this), (void*) (tx_cq), __func__);
 #ifdef EXCESSIVE_POLLING_BACKOFF_MICRO_S
     std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::microseconds>(now - send_poll_stamp).count() <
@@ -77,7 +80,7 @@ class test_controller : public libfatbat::controller_base<test_controller>
 
       // static auto polling =
       //     NS_DEBUG::cnt_deb<9>.make_timer(1, NS_DEBUG::str<>("poll send queue"));
-      // LF_DEB(cnt_deb<9>, timed(polling, hptr(tx_cq)));
+      // LF_DEB(cnt_deb<9>, timed(polling, static_cast<void*>(tx_cq)));
 
       // poll for completions
       {
@@ -93,22 +96,22 @@ class test_controller : public libfatbat::controller_base<test_controller>
         // flags might not be set correctly
         if ((e.flags & (FI_MSG | FI_SEND | FI_TAGGED)) != 0)
         {
-          SPDLOG_ERROR(
-              "{:20} for FI_SEND, len {:#010x}, context {:p}, code {:03}, flags {:016b}, error {}",
+          LIBFATBAT_ERROR(ctrl_log,
+              "{:<20} for FI_SEND, len {:#010x}, context {:p}, code {:03}, flags {:016b}, error {}",
               "txcq FI_EAVAIL", static_cast<unsigned long>(e.len), (void*) (e.op_context), e.err,
               e.flags, fi_cq_strerror(tx_cq, e.prov_errno, e.err_data, (char*) e.buf, e.len));
         }
         else if ((e.flags & FI_RMA) != 0)
         {
-          SPDLOG_ERROR(
-              "{:20} for FI_RMA, len {:#010x}, context {:p}, code {:03}, flags {:016b}, error {}",
+          LIBFATBAT_ERROR(ctrl_log,
+              "{:<20} for FI_RMA, len {:#010x}, context {:p}, code {:03}, flags {:016b}, error {}",
               "txcq FI_EAVAIL", static_cast<unsigned long>(e.len), (void*) (e.op_context), e.err,
               e.flags, fi_cq_strerror(tx_cq, e.prov_errno, e.err_data, (char*) e.buf, e.len));
         }
         else if ((e.flags & FI_READ) != 0)
         {
-          SPDLOG_ERROR(
-              "{:20} for FI_READ, len {:#010x}, context {:p}, code {:03}, flags {:016b}, error {}",
+          LIBFATBAT_ERROR(ctrl_log,
+              "{:<20} for FI_READ, len {:#010x}, context {:p}, code {:03}, flags {:016b}, error {}",
               "txcq FI_EAVAIL", static_cast<unsigned long>(e.len), (void*) (e.op_context), e.err,
               e.flags, fi_cq_strerror(tx_cq, e.prov_errno, e.err_data, (char*) e.buf, e.len));
         }
@@ -126,15 +129,15 @@ class test_controller : public libfatbat::controller_base<test_controller>
       int processed = 0;
       for (int i = 0; i < ret; ++i)
       {
-        SPDLOG_DEBUG("{:20} {:02}, txcq_flags {}, ({:03}), context {:p}, length {:#10x}",
-            "Completion", i,
+        LIBFATBAT_DEBUG(ctrl_log,
+            "{:<20} {:02}, txcq_flags {}, ({:03}), context {:p}, length {:#10x}", "Completion", i,
             fi_tostr_r(buf.data(), buf.size(), &entry[i].flags, FI_TYPE_CQ_EVENT_FLAGS),
             entry[i].flags, (void*) (entry[i].op_context), entry[i].len);
         if ((entry[i].flags & (FI_TAGGED | FI_SEND | FI_MSG)) != 0)
         {
           ++sends_complete_;
-          SPDLOG_DEBUG("{:20} {:02}, txcq tagged SEND completion, context {:p}", "Completion", i,
-              (void*) (entry[i].op_context));
+          LIBFATBAT_DEBUG(ctrl_log, "{:<20} {:02}, txcq tagged SEND completion, context {:p}",
+              "Completion", i, (void*) (entry[i].op_context));
 
           operation_context* handler = reinterpret_cast<operation_context*>(entry[i].op_context);
           processed += handler->handle_tagged_send_completion(user_data);
@@ -142,22 +145,23 @@ class test_controller : public libfatbat::controller_base<test_controller>
         else if (entry[i].flags == (FI_READ | FI_RMA))
         {
           ++reads_complete_;
-          SPDLOG_DEBUG("{:20} Received txcq READ completion, context {:p}", "Completion",
-              (void*) (entry[i].op_context));
+          LIBFATBAT_DEBUG(ctrl_log, "{:<20} Received txcq READ completion, context {:p}",
+              "Completion", (void*) (entry[i].op_context));
           operation_context* handler = reinterpret_cast<operation_context*>(entry[i].op_context);
           processed += handler->handle_rma_read_completion();
         }
         else if (entry[i].flags == FI_RMA)
         {
           ++reads_complete_;
-          SPDLOG_DEBUG("{:20} Received txcq RMA completion, context {:p}", "Completion",
-              (void*) (entry[i].op_context));
+          LIBFATBAT_DEBUG(ctrl_log, "{:<20} Received txcq RMA completion, context {:p}",
+              "Completion", (void*) (entry[i].op_context));
           operation_context* handler = reinterpret_cast<operation_context*>(entry[i].op_context);
           processed += handler->handle_rma_read_completion();
         }
         else
         {
-          SPDLOG_ERROR("Received an unknown txcq completion, flags {:016b}", entry[i].flags);
+          LIBFATBAT_ERROR(
+              ctrl_log, "Received an unknown txcq completion, flags {:016b}", entry[i].flags);
           std::terminate();
         }
       }
@@ -169,7 +173,7 @@ class test_controller : public libfatbat::controller_base<test_controller>
     }
     else
     {
-      SPDLOG_ERROR("{:20} unknown error in completion txcq read", "Completion");
+      LIBFATBAT_ERROR(ctrl_log, "{:<20} unknown error in completion txcq read", "Completion");
     }
     return 0;
   }
@@ -177,7 +181,7 @@ class test_controller : public libfatbat::controller_base<test_controller>
   // --------------------------------------------------------------------
   int poll_recv_queue(fid_cq* rx_cq, void* user_data)
   {
-    // SPDLOG_SCOPE("{} rx_cq {} {}", (void*) (this), (void*) (rx_cq), __func__);
+    // LIBFATBAT_SCOPE(ctrl_log, "{} rx_cq {} {}", (void*) (this), (void*) (rx_cq), __func__);
 #ifdef EXCESSIVE_POLLING_BACKOFF_MICRO_S
     std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::microseconds>(now - recv_poll_stamp).count() <
@@ -196,7 +200,7 @@ class test_controller : public libfatbat::controller_base<test_controller>
       if (!bypass_rx_lock() && !lock.owns_lock()) { return -1; }
 
       // static auto polling = NS_DEBUG::cnt_deb<2>.make_timer(1, NS_DEBUG::str<>("poll recv queue"));
-      // LF_DEB(cnt_deb<2>, timed(polling, hptr(rx_cq)));
+      // LF_DEB(cnt_deb<2>, timed(polling, static_cast<void*>(rx_cq)));
 
       // poll for completions
       {
@@ -212,7 +216,8 @@ class test_controller : public libfatbat::controller_base<test_controller>
         // from the manpage 'man 3 fi_cq_readerr'
         if (e.err == FI_ECANCELED)
         {
-          SPDLOG_DEBUG("{:20} {:02}, rxcq Cancelled, flags {:#06x}, len {:#010x}, context {:p}",
+          LIBFATBAT_DEBUG(ctrl_log,
+              "{:<20} {:02}, rxcq Cancelled, flags {:#06x}, len {:#010x}, context {:p}",
               "Completion", 0, e.flags, e.len, (void*) (e.op_context));
           // the request was cancelled, we can simply exit
           // as the canceller will have doone any cleanup needed
@@ -222,12 +227,12 @@ class test_controller : public libfatbat::controller_base<test_controller>
         }
         else if (e.err != FI_SUCCESS)
         {
-          SPDLOG_ERROR(
-              "{:20} {:02}, rxcq error, flags {:#06x}, len {:#010x}, context {:p}, error msg {}",
+          LIBFATBAT_ERROR(ctrl_log,
+              "{:<20} {:02}, rxcq error, flags {:#06x}, len {:#010x}, context {:p}, error msg {}",
               "Completion", 0, e.flags, e.len, (void*) (e.op_context),
               fi_cq_strerror(rx_cq, e.prov_errno, e.err_data, (char*) e.buf, e.len));
         }
-        SPDLOG_SCOPE("{} {}", (void*) (this), __func__);
+        LIBFATBAT_SCOPE(ctrl_log, "{} {}", (void*) (this), __func__);
         operation_context* handler = reinterpret_cast<operation_context*>(e.op_context);
         if (handler) handler->handle_error(e);
         return 0;
@@ -243,22 +248,22 @@ class test_controller : public libfatbat::controller_base<test_controller>
       for (int i = 0; i < ret; ++i)
       {
         ++recvs_complete_;
-        SPDLOG_DEBUG("{:20} {:02}, rxcq_flags {}, ({:03}), context {:p}, length {:#06x}",
-            "Completion", i,
+        LIBFATBAT_DEBUG(ctrl_log,
+            "{:<20} {:02}, rxcq_flags {}, ({:03}), context {:p}, length {:#06x}", "Completion", i,
             fi_tostr_r(buf.data(), buf.size(), &entry[i].flags, FI_TYPE_CQ_EVENT_FLAGS),
             entry[i].flags, (void*) (entry[i].op_context), entry[i].len);
         if ((entry[i].flags & (FI_TAGGED | FI_RECV)) != 0)
         {
-          SPDLOG_DEBUG("{:20} {:02}, rxcq tagged recv completion, context {:p}", "Completion", i,
-              (void*) (entry[i].op_context));
+          LIBFATBAT_DEBUG(ctrl_log, "{:<20} {:02}, rxcq tagged recv completion, context {:p}",
+              "Completion", i, (void*) (entry[i].op_context));
 
           operation_context* handler = reinterpret_cast<operation_context*>(entry[i].op_context);
           processed += handler->handle_tagged_recv_completion(user_data);
         }
         else
         {
-          SPDLOG_ERROR(
-              "{:20} {:02}, received an unknown rxcq completion, flags {:#06x}, context {:p}",
+          LIBFATBAT_ERROR(ctrl_log,
+              "{:<20} {:02}, received an unknown rxcq completion, flags {:#06x}, context {:p}",
               "Completion", i, entry[i].flags, (void*) (entry[i].op_context));
           std::terminate();
         }
@@ -271,7 +276,7 @@ class test_controller : public libfatbat::controller_base<test_controller>
     }
     else
     {
-      SPDLOG_ERROR("{:20} unknown error in completion rxcq read", "Completion");
+      LIBFATBAT_ERROR(ctrl_log, "{:<20} unknown error in completion rxcq read", "Completion");
     }
     return 0;
   }

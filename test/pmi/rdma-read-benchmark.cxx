@@ -26,6 +26,9 @@
 #include "pmi_helper.hpp"
 #include "polling_helper.hpp"
 
+// ------------------------------------------------------------------
+inline auto rdmabench_log = libfatbat::log::create("RdmaBench");
+
 struct rma_key_info
 {
   void* address;
@@ -37,11 +40,7 @@ struct rma_key_info
 int main(int argc, char** argv)
 {
   // -------------------------------------------------
-  // define log level settings when enabled
-#if defined(SPDLOG_ACTIVE_LEVEL) && (SPDLOG_ACTIVE_LEVEL != SPDLOG_LEVEL_OFF)
-  spdlog::set_pattern("[%^%-8l%$]%t| %v");
-  spdlog::set_level(spdlog::level::warn);
-#endif
+  libfatbat::log::init_from_env();
 
   namespace po = boost::program_options;
   po::options_description desc("Options");
@@ -68,12 +67,12 @@ int main(int argc, char** argv)
 
   if (iterations == 0)
   {
-    SPDLOG_ERROR("iterations must be > 0");
+    LIBFATBAT_ERROR(rdmabench_log, "iterations must be > 0");
     return EXIT_FAILURE;
   }
   if (min_shift > max_shift)
   {
-    SPDLOG_ERROR("min-shift must be <= max-shift");
+    LIBFATBAT_ERROR(rdmabench_log, "min-shift must be <= max-shift");
     return EXIT_FAILURE;
   }
 
@@ -92,7 +91,7 @@ int main(int argc, char** argv)
 
   if (size < 2)
   {
-    if (rank == 0) { SPDLOG_ERROR("This benchmark requires at least 2 ranks."); }
+    if (rank == 0) { LIBFATBAT_ERROR(rdmabench_log, "This benchmark requires at least 2 ranks."); }
     pmi.fence();
     pmi.finalize_PMI();
     return EXIT_FAILURE;
@@ -188,7 +187,7 @@ int main(int argc, char** argv)
               auto const* remote_key_info = static_cast<rma_key_info*>(rma_read_keys[r].get());
               if (remote_key_info->length < msg_size)
               {
-                SPDLOG_ERROR(
+                LIBFATBAT_ERROR(rdmabench_log,
                     "rank {} remote key length {} from rank {} is smaller than msg_size {}", rank,
                     remote_key_info->length, r, msg_size);
                 throw std::runtime_error("invalid RMA key length");
@@ -248,8 +247,8 @@ int main(int argc, char** argv)
       uint32_t const reads_done = (uint32_t) controller.reads_complete_ - reads_complete_before;
       if (reads_done != expected_reads)
       {
-        SPDLOG_ERROR("rank {} read counter mismatch for msg_size {}: reads {}/{}", rank, msg_size,
-            reads_done, expected_reads);
+        LIBFATBAT_ERROR(rdmabench_log, "rank {} read counter mismatch for msg_size {}: reads {}/{}",
+            rank, msg_size, reads_done, expected_reads);
         throw std::runtime_error("counter mismatch");
       }
     }
