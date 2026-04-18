@@ -93,8 +93,8 @@ struct pmi_helper
   }
 
   // --------------------------------------------------------------------
-  template <typename Derived>
-  void boot_PMI(libfatbat::controller_base<Derived>* controller)
+  template <typename Derived, typename OperationContext>
+  void boot_PMI(libfatbat::controller_base<Derived, OperationContext>* controller)
   {
     using namespace libfatbat;
 
@@ -211,8 +211,8 @@ struct pmi_helper
   }
 
   // --------------------------------------------------------------------
-  template <typename Derived>
-  void boot_PMI(libfatbat::controller_base<Derived>* controller)
+  template <typename Derived, typename OperationContext>
+  void boot_PMI(libfatbat::controller_base<Derived, OperationContext>* controller)
   {
     using namespace libfatbat;
 
