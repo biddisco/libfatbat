@@ -25,7 +25,7 @@
 #include "test_utils.hpp"
 
 // ------------------------------------------------------------------
-inline auto srtest_log = libfatbat::log::create("SendRecv");
+MAKE_LOGGER(srtest_log, "SendRecv")
 
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)

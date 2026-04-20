@@ -35,7 +35,7 @@ typedef base64_from_binary<transform_width<std::string::const_iterator, 6, 8>> b
 typedef transform_width<binary_from_base64<std::string::const_iterator>, 8, 6> binary_t;
 
 // ------------------------------------------------------------------
-inline auto pmihelp_log = libfatbat::log::create("PMIHelp");
+MAKE_LOGGER(pmihelp_log, "PMIHelp")
 
 // --------------------------------------------------------------------
 // When running on an HPC system, using mpi or slurm for launch,

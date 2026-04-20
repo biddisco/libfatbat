@@ -22,7 +22,7 @@
 #include "operation_context.hpp"
 
 // --------------------------------------------------------------------
-inline auto comm_log = libfatbat::log::create("Comm");
+MAKE_LOGGER(comm_log, "Comm")
 
 // --------------------------------------------------------------------
 // A convenience memory context to manage memory regions

@@ -15,7 +15,7 @@
 #include "operation_context.hpp"
 
 // --------------------------------------------------------------------
-inline auto ctrl_log = libfatbat::log::create("Ctrl");
+MAKE_LOGGER(ctrl_log, "Ctrl")
 
 // --------------------------------------------------------------------
 class test_controller : public libfatbat::controller_base<test_controller, operation_context>

@@ -2,7 +2,7 @@
 #include "operation_context.hpp"
 
 // ------------------------------------------------------------------
-inline auto testutil_log = libfatbat::log::create("TestUtil");
+MAKE_LOGGER(testutil_log, "TestUtil")
 
 // create a lambda we can use as a callback function that verifies the data in the buffer is correct
 auto verify_buffer = [](void const* buffer, std::size_t message_size, rank_type this_rank,

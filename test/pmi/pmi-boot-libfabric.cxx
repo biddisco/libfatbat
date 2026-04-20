@@ -13,7 +13,7 @@
 #include "pmi_helper.hpp"
 
 // ------------------------------------------------------------------
-inline auto pmiboot_log = libfatbat::log::create("PMIBoot");
+MAKE_LOGGER(pmiboot_log, "PMIBoot")
 
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)

@@ -105,7 +105,7 @@ using tag_type = std::uint64_t;
 using request_callback_type = unique_function<void(rank_type, tag_type)>;
 
 // ------------------------------------------------------------------
-inline auto ctxt_log = libfatbat::log::create("Context");
+MAKE_LOGGER(ctxt_log, "Context")
 
 // --------------------------------------------------------------------
 // we are not supporting cacellation for now

@@ -27,7 +27,7 @@
 #include "polling_helper.hpp"
 
 // ------------------------------------------------------------------
-inline auto rdmabench_log = libfatbat::log::create("RdmaBench");
+MAKE_LOGGER(rdmabench_log, "RdmaBench")
 
 struct rma_key_info
 {

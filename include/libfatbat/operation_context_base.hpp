@@ -15,7 +15,7 @@
 
 namespace libfatbat {
 
-  inline auto opctx_log = libfatbat::log::create("opctxtbase");
+  MAKE_LOGGER(opctx_log, "opctxtbase")
 
   // This struct holds the ready state of a future
   // we must also store the context used in libfabric, in case

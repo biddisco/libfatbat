@@ -18,7 +18,7 @@
 #include "controller.hpp"
 
 // ------------------------------------------------------------------
-inline auto pollhelp_log = libfatbat::log::create("PollHelp");
+MAKE_LOGGER(pollhelp_log, "PollHelp")
 
 // ----------------------------------------------------------------------------
 // Spawns a background thread that polls until stop_flag is set.

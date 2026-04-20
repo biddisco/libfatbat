@@ -18,7 +18,7 @@
 
 namespace libfatbat {
 
-  inline auto err_log = libfatbat::log::create("Error");
+  MAKE_LOGGER(err_log, "Error")
 
   class fabric_error : public std::runtime_error
   {

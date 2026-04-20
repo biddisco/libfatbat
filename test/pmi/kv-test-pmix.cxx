@@ -19,7 +19,7 @@
 #include "libfatbat/logging.hpp"
 
 // ------------------------------------------------------------------
-inline auto kvtest_log = libfatbat::log::create("KVTest");
+MAKE_LOGGER(kvtest_log, "KVTest")
 
 #define CHECK_PMIX(name, f)                                                                        \
   {                                                                                                \

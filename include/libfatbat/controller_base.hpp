@@ -44,7 +44,7 @@
 // #define EXCESSIVE_POLLING_BACKOFF_MICRO_S 50
 
 // ------------------------------------------------------------------
-inline auto bctrl_log = libfatbat::log::create("BaseCtrl");
+MAKE_LOGGER(bctrl_log, "BaseCtrl")
 
 // ----------------------------------------
 // auto progress (libfabric thread) or manual
@@ -233,7 +233,7 @@ namespace libfatbat {
   /// Because we use so many handles, we must be careful to
   /// delete them all before closing resources that use them
   template <typename Handle>
-  void fidclose(Handle fid, char const* msg)
+  void fidclose(Handle fid, [[maybe_unused]] char const* msg)
   {
     LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "fid close", msg);
     int ret = fi_close(fid);
@@ -423,7 +423,7 @@ public:
     libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> reads_complete_;
     libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> writes_complete_;
 
-    void finvoke(char const* msg, char const* err, int ret)
+    void finvoke([[maybe_unused]] char const* msg, char const* err, int ret)
     {
       LIBFATBAT_TRACE(bctrl_log, "{:<20}", msg);
       if (ret) throw libfatbat::fabric_error(ret, err);
@@ -746,7 +746,7 @@ public:
     // --------------------------------------------------------------------
     uint64_t caps_flags(uint64_t available_flags) const
     {
-      char buf[1024];
+      [[maybe_unused]] char buf[1024];
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:016x} : {}", "caps available", available_flags,
           fi_tostr_r(buf, 1024, &available_flags, FI_TYPE_CAPS));
       uint64_t required_flags = static_cast<Derived const*>(this)->caps_flags(available_flags);
@@ -843,7 +843,7 @@ public:
       if (ret) throw libfatbat::fabric_error(ret, "Failed to get fabric info");
       if (display_fabric_info_ && init_fabric_info_)
       {
-        std::array<char, 8192> buf;
+        [[maybe_unused]] std::array<char, 8192> buf;
         LIBFATBAT_TRACE(bctrl_log, "{:<20} {} {}", "Fabric info", "pre-check ->",
             fabric_hints_->fabric_attr->prov_name, "\n",
             fi_tostr_r(buf.data(), buf.size(), init_fabric_info_, FI_TYPE_INFO));
@@ -859,7 +859,7 @@ public:
 
       if ((init_fabric_info_->mode & FI_CONTEXT) == 0)
       {
-        std::array<char, 1024> buf;
+        [[maybe_unused]] std::array<char, 1024> buf;
         LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "mode FI_CONTEXT!=0",
             fi_tostr_r(buf.data(), buf.size(), &init_fabric_info_->mode, FI_TYPE_MODE));
       }
@@ -902,15 +902,15 @@ public:
 
       if (rootnode)
       {
-        std::array<char, 8192> buf;
+        [[maybe_unused]] std::array<char, 8192> buf;
         LIBFATBAT_TRACE(bctrl_log, "{:<20} \n {}", "Fabric info",
             fi_tostr_r(buf.data(), buf.size(), fabric_info_, FI_TYPE_INFO));
       }
 
-      int mrkey = (fabric_hints_->domain_attr->mr_mode & FI_MR_PROV_KEY) != 0;
+      [[maybe_unused]] int mrkey = (fabric_hints_->domain_attr->mr_mode & FI_MR_PROV_KEY) != 0;
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_MR_PROV_KEY", mrkey);
 
-      bool context = (fabric_hints_->mode & FI_CONTEXT) != 0;
+      [[maybe_unused]] bool context = (fabric_hints_->mode & FI_CONTEXT) != 0;
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_CONTEXT", context);
 
       mrlocal = (fabric_hints_->domain_attr->mr_mode & FI_MR_LOCAL) != 0;
@@ -922,7 +922,7 @@ public:
       /* Check if provider requires heterogeneous memory registration */
       mrhmem = (fabric_hints_->domain_attr->mr_mode & FI_MR_HMEM) != 0;
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_MR_HMEM", mrhmem);
-      bool mrhalloc = (fabric_hints_->domain_attr->mr_mode & FI_MR_ALLOCATED) != 0;
+      [[maybe_unused]] bool mrhalloc = (fabric_hints_->domain_attr->mr_mode & FI_MR_ALLOCATED) != 0;
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_MR_ALLOCATED", mrhalloc);
 
       LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "Creating fi_fabric");
@@ -1235,8 +1235,8 @@ public:
     }
 
     // --------------------------------------------------------------------
-    void bind_queue_to_endpoint(
-        struct fid_ep* endpoint, struct fid_cq*& cq, uint32_t cqtype, char const* type)
+    void bind_queue_to_endpoint(struct fid_ep* endpoint, struct fid_cq*& cq, uint32_t cqtype,
+        [[maybe_unused]] char const* type)
     {
       LIBFATBAT_SCOPE(bctrl_log, "{} {}, {}", (void*) (this), __func__, type);
 
@@ -1257,7 +1257,7 @@ public:
     }
 
     // --------------------------------------------------------------------
-    void enable_endpoint(struct fid_ep* endpoint, char const* type)
+    void enable_endpoint(struct fid_ep* endpoint, [[maybe_unused]] char const* type)
     {
       LIBFATBAT_SCOPE(bctrl_log, "{} {}, {}", (void*) (this), __func__, type);
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {} {}", "enable_endpoint", (void*) (endpoint), type);
@@ -1667,7 +1667,8 @@ public:
     }
 
     // --------------------------------------------------------------------
-    struct fid_cq* create_completion_queue(struct fid_domain* domain, size_t size, char const* type)
+    struct fid_cq* create_completion_queue(
+        struct fid_domain* domain, size_t size, [[maybe_unused]] char const* type)
     {
       LIBFATBAT_SCOPE(bctrl_log, "{} {}, {}", (void*) (this), __func__, type);
 

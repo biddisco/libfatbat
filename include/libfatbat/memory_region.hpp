@@ -29,7 +29,7 @@
 
 namespace libfatbat {
 
-  inline auto memrgn_log = libfatbat::log::create("Region");
+  MAKE_LOGGER(memrgn_log, "Region")
 
   /*
 struct fi_mr_attr {

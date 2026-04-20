@@ -56,7 +56,7 @@
 
 namespace libfatbat {
 
-  inline auto locality_log = libfatbat::log::create("Locality");
+  MAKE_LOGGER(locality_log, "Locality")
 
   struct locality;
 

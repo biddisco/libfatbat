@@ -25,7 +25,7 @@
 #include "test_utils.hpp"
 
 // ------------------------------------------------------------------
-inline auto rdmatest_log = libfatbat::log::create("RdmaTest");
+MAKE_LOGGER(rdmatest_log, "RdmaTest")
 
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)

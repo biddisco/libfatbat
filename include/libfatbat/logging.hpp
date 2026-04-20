@@ -116,7 +116,8 @@ namespace libfatbat::log {
   // exists in spdlog's registry it is returned; otherwise a new
   // stderr-colour logger is created and registered.
   // -------------------------------------------------------------------------
-  inline std::shared_ptr<spdlog::logger> create(std::string const& name)
+  using log_type = std::shared_ptr<spdlog::logger>;
+  inline log_type create(std::string const& name)
   {
     auto logger = spdlog::get(name);
     if (!logger)
@@ -127,6 +128,8 @@ namespace libfatbat::log {
     }
     return logger;
   }
+# define MAKE_LOGGER(name, text)                                                                   \
+   inline libfatbat::log::log_type name = libfatbat::log::create(#text);
 
   // ------------------------------------------------------------------
   // helper class for printing short memory dump and crc32
@@ -249,8 +252,6 @@ namespace libfatbat::log {
 
 #else
 
-inline void create(std::string const&) {}
-
 // In increasing level
 # define LIBFATBAT_TRACE(...)
 # define LIBFATBAT_DEBUG(...)
@@ -260,5 +261,10 @@ inline void create(std::string const&) {}
 # define LIBFATBAT_CRITICAL(...)
 //
 # define LIBFATBAT_SCOPE(...)
+//
+# define MAKE_LOGGER(name, text)
+namespace libfatbat::log {
+  inline void init_from_env() {}
+}    // namespace libfatbat::log
 
 #endif

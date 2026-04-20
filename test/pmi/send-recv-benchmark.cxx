@@ -24,7 +24,7 @@
 #include "polling_helper.hpp"
 
 // ------------------------------------------------------------------
-inline auto srbench_log = libfatbat::log::create("SendRecvBench");
+MAKE_LOGGER(srbench_log, "SendRecvBench")
 
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
