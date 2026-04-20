@@ -194,6 +194,6 @@ libfatbat_write_config_defines_file(
   "cmake/libfatbat_defines_template.hpp"
 )
 
-# target_include_directories(libfatbat PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(libfatbat INTERFACE "${CMAKE_CURRENT_BINARY_DIR}")
 
 add_subdirectory(test)
