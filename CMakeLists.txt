@@ -86,6 +86,18 @@ find_package(Libfabric REQUIRED)
 find_package(Boost REQUIRED CONFIG COMPONENTS headers program_options)
 
 # ------------------------------------------------------------------------------
+# fmt library (for nice formatting of messages)
+# ------------------------------------------------------------------------------
+find_package(fmt QUIET)
+if(NOT fmt_FOUND)
+  message("Fetching fmt")
+  include(FetchContent)
+  FetchContent_Declare(fmt GIT_REPOSITORY https://github.com/fmtlib/fmt GIT_TAG 12.1.0)
+  FetchContent_MakeAvailable(fmt)
+endif()
+colour_message(STATUS ${Green} "✅ fmt found ${fmt_VERSION}")
+
+# ------------------------------------------------------------------------------
 # spdlog logging library
 # ------------------------------------------------------------------------------
 string(TOUPPER ${FATBAT_LOG_LEVEL} FATBAT_LOG_LEVEL_UPPERCASE)
@@ -93,12 +105,6 @@ if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
   find_package(spdlog REQUIRED)
   colour_message(STATUS ${Green} "✅ spdlog found ${spdlog_VERSION}")
 endif()
-
-# ------------------------------------------------------------------------------
-# fmt library (for nice formatting of messages)
-# ------------------------------------------------------------------------------
-find_package(fmt REQUIRED)
-colour_message(STATUS ${Green} "✅ fmt found ${fmt_VERSION}")
 
 # ---------------------------------------------------------------------
 # hwmalloc dependency
