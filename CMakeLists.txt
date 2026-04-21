@@ -53,6 +53,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/lib
 
 # ---------------------------------------------------------------------
 # Enable Position Independent Code (PIC) for all targets
+# ---------------------------------------------------------------------
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ---------------------------------------------------------------------
@@ -72,7 +73,9 @@ set_property(
            critical
 )
 
-# implement some counters of internal actions
+# ---------------------------------------------------------------------
+# optional : implement some counters of internal actions
+# ---------------------------------------------------------------------
 option(FATBAT_WITH_COUNTERS "Enable internal counters (default: OFF)" ON)
 
 # ---------------------------------------------------------------------
@@ -83,27 +86,29 @@ find_package(Libfabric REQUIRED)
 # ---------------------------------------------------------------------
 # Boost we use crc and lockfree, but these are header only not in COMPONENTS
 # ---------------------------------------------------------------------
-find_package(Boost REQUIRED CONFIG COMPONENTS headers program_options)
-
-# ------------------------------------------------------------------------------
-# fmt library (for nice formatting of messages)
-# ------------------------------------------------------------------------------
-find_package(fmt QUIET)
-if(NOT fmt_FOUND)
-  message("Fetching fmt")
-  include(FetchContent)
-  FetchContent_Declare(fmt GIT_REPOSITORY https://github.com/fmtlib/fmt GIT_TAG 12.1.0)
-  FetchContent_MakeAvailable(fmt)
+find_package(Boost REQUIRED CONFIG COMPONENTS headers)
+# We optionally use program options in some benchmarks/tests
+find_package(Boost QUIET CONFIG COMPONENTS headers program_options)
+if(TARGET Boost::program_options)
+  libfatbat_add_config_define_namespace(
+    DEFINE LIBFATBAT_HAVE_BOOST_PROGRAM_OPTIONS NAMESPACE libfatbat
+  )
 endif()
-colour_message(STATUS ${Green} "✅ fmt found ${fmt_VERSION}")
 
 # ------------------------------------------------------------------------------
 # spdlog logging library
 # ------------------------------------------------------------------------------
 string(TOUPPER ${FATBAT_LOG_LEVEL} FATBAT_LOG_LEVEL_UPPERCASE)
 if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
-  find_package(spdlog REQUIRED)
-  colour_message(STATUS ${Green} "✅ spdlog found ${spdlog_VERSION}")
+  find_package(spdlog QUIET)
+  if(spdlog_FOUND)
+    colour_message(STATUS ${Green} "✅ spdlog found ${spdlog_VERSION}")
+    message(STATUS "spdlog include dirs: ${spdlog_INCLUDE_DIRS}")
+  else()
+    FetchContent_Declare(spdlog GIT_REPOSITORY https://github.com/gabime/spdlog.git GIT_TAG v2.x)
+    FetchContent_MakeAvailable(spdlog)
+    colour_message(STATUS ${Green} "✅ Fetched spdlog ${spdlog_VERSION}")
+  endif()
 endif()
 
 # ---------------------------------------------------------------------
@@ -121,7 +126,6 @@ if(NOT TARGET hwmalloc AND NOT hwmalloc_FOUND)
   FetchContent_Declare(
     hwmalloc GIT_REPOSITORY https://github.com/ghex-org/hwmalloc.git GIT_TAG jb-develop
   )
-
   FetchContent_GetProperties(hwmalloc)
   if(NOT hwmalloc_POPULATED)
     message(STATUS "✅ hwmalloc unpopulated: fetching: ${FETCHCONTENT_SOURCE_DIR_HWMALLOC}")
@@ -138,20 +142,22 @@ if(FATBAT_WITH_COUNTERS)
 endif()
 
 # ---------------------------------------------------------------------
-# currently header only interface library
+# libfatbat itself is currently header only interface library
 # ---------------------------------------------------------------------
 add_library(libfatbat INTERFACE)
 target_link_libraries(libfatbat INTERFACE Boost::headers)
 target_link_libraries(libfatbat INTERFACE HWMALLOC::hwmalloc)
 target_link_libraries(libfatbat INTERFACE libfabric::libfabric)
 
+# add spdlog and fmt if logging is enabled and set compile definitions for logging
 if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
   target_compile_definitions(libfatbat INTERFACE LIBFATBAT_LOGGING_ENABLED=1)
   target_compile_definitions(
     libfatbat INTERFACE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_${FATBAT_LOG_LEVEL_UPPERCASE}
   )
-  target_link_libraries(libfatbat INTERFACE spdlog::spdlog $<$<BOOL:${MINGW}>:ws2_32>)
-  target_link_libraries(libfatbat INTERFACE fmt::fmt)
+  target_link_libraries(
+    libfatbat INTERFACE $<BUILD_INTERFACE:spdlog::spdlog> $<BUILD_INTERFACE:fmt::fmt>
+  )
 endif()
 
 target_include_directories(
@@ -164,6 +170,8 @@ target_include_directories(libfatbat INTERFACE "$<BUILD_INTERFACE:${PROJECT_BINA
 # ------------------------------------------------------------------------------
 # if we are using GPU, then the libfabric library was probably built with gpu support, and we should
 # link to cuda to prevent link errors
+#
+# TODO - check for HIP gpu support in hwmalloc and use that instead
 # ------------------------------------------------------------------------------
 if(HWMALLOC_ENABLE_DEVICE)
   target_compile_definitions(libfatbat INTERFACE LIBFATBAT_ENABLE_DEVICE)
@@ -193,7 +201,4 @@ libfatbat_write_config_defines_file(
   NAMESPACE libfatbat FILENAME "${CMAKE_CURRENT_BINARY_DIR}/libfatbat_defines.hpp" TEMPLATE
   "cmake/libfatbat_defines_template.hpp"
 )
-
-target_include_directories(libfatbat INTERFACE "${CMAKE_CURRENT_BINARY_DIR}")
-
 add_subdirectory(test)

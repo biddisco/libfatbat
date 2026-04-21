@@ -10,18 +10,19 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <thread>
 //
 #include <boost/program_options.hpp>
-#include <fmt/format.h>
 #include <hwmalloc/heap.hpp>
 //
 #include "libfatbat/logging.hpp"
 //
-#include "communicator.hpp"
-#include "controller.hpp"
-#include "pmi_helper.hpp"
-#include "polling_helper.hpp"
+#include "test/communicator.hpp"
+#include "test/controller.hpp"
+#include "test/pmi_helper.hpp"
+#include "test/polling_helper.hpp"
+#include "test/test_utils.hpp"
 
 // ------------------------------------------------------------------
 MAKE_LOGGER(srbench_log, "SendRecvBench")
@@ -94,11 +95,11 @@ int main(int argc, char** argv)
 
   if (rank == 0)
   {
-    fmt::print("# send/recv bandwidth benchmark\n");
-    fmt::print("# iterations={} min_shift={} max_shift={} warmup_iterations={}\n", iterations,
+    std::printf("# send/recv bandwidth benchmark\n");
+    std::printf("# iterations=%zu min_shift=%zu max_shift=%zu warmup_iterations=%d\n", iterations,
         min_shift, max_shift, 1);
-    fmt::print("{:<12}{:<14}{:<14}{:<16}{:<20}{:<20}\n", "bytes", "iters", "time_ms",
-        "msg_rate_M/s", "one_way_MB/s", "bi_dir_MB/s");
+    std::printf("%-12s%-14s%-14s%-16s%-20s%-20s\n", "bytes", "iters", "time_ms", "msg_rate_M/s",
+        "one_way_MB/s", "bi_dir_MB/s");
   }
 
   {
@@ -184,8 +185,8 @@ int main(int argc, char** argv)
 
       if (rank == 0)
       {
-        fmt::print("{:<12}{:<14}{:<14.3f}{:<16.3f}{:<20.3f}{:<20.3f}\n", msg_size, iterations,
-            elapsed_ms, msg_rate_mps, one_way_mbps, bi_dir_mbps);
+        std::printf("%-12zu%-14zu%-14.3f%-16.3f%-20.3f%-20.3f\n", msg_size, iterations, elapsed_ms,
+            msg_rate_mps, one_way_mbps, bi_dir_mbps);
       }
 
       uint32_t const sends_done = (uint32_t) controller.sends_complete_ - sends_complete_before;

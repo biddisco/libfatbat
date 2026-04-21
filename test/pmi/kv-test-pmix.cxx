@@ -15,7 +15,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <fmt/format.h>
 #include "libfatbat/logging.hpp"
 
 // ------------------------------------------------------------------
@@ -69,8 +68,8 @@ int main(int argc, char** argv)
   // share a string across all ranks
   char key[PMIX_MAX_KEYLEN];
   char my_string[64];
-  fmt::format_to(my_string, "Hello from rank {:03}\0", myproc.rank);
-  fmt::format_to(key, "LIBFABRIC_{:03}_STRING\0", myproc.rank);
+  std::snprintf(my_string, sizeof(my_string), "Hello from rank %03u", myproc.rank);
+  std::snprintf(key, sizeof(key), "LIBFABRIC_%03u_STRING", myproc.rank);
   LIBFATBAT_DEBUG(
       kvtest_log, "{:<20} rank {} key {} value {}", "Prepared data", rank, key, my_string);
 
@@ -94,7 +93,7 @@ int main(int argc, char** argv)
 
       LIBFATBAT_SCOPE(kvtest_log, "Rank {} Getting data", rank);
       PMIX_LOAD_PROCID(&proc, myproc.nspace, r);
-      fmt::format_to(key, "LIBFABRIC_{:03}_STRING\0", r);
+      std::snprintf(key, sizeof(key), "LIBFABRIC_%03u_STRING", r);
 
       CHECK_PMIX("Get (key)", PMIx_Get(&proc, key, NULL, 0, &val));
       LIBFATBAT_DEBUG(kvtest_log, "{:<20} Rank {} from rank {}: {}", "Key read", myproc.rank, r,

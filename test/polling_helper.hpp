@@ -15,7 +15,7 @@
 //
 #include "libfatbat/logging.hpp"
 //
-#include "controller.hpp"
+#include "test/controller.hpp"
 
 // ------------------------------------------------------------------
 MAKE_LOGGER(pollhelp_log, "PollHelp")

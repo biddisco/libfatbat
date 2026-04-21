@@ -18,11 +18,11 @@
 //
 #include "libfatbat/logging.hpp"
 //
-#include "communicator.hpp"
-#include "controller.hpp"
-#include "pmi_helper.hpp"
-#include "polling_helper.hpp"
-#include "test_utils.hpp"
+#include "test/communicator.hpp"
+#include "test/controller.hpp"
+#include "test/pmi_helper.hpp"
+#include "test/polling_helper.hpp"
+#include "test/test_utils.hpp"
 
 // ------------------------------------------------------------------
 MAKE_LOGGER(srtest_log, "SendRecv")

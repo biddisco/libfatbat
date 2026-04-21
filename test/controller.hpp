@@ -12,7 +12,7 @@
 #include "libfatbat/controller_base.hpp"
 #include "libfatbat/logging.hpp"
 //
-#include "operation_context.hpp"
+#include "test/operation_context.hpp"
 
 // --------------------------------------------------------------------
 MAKE_LOGGER(ctrl_log, "Ctrl")

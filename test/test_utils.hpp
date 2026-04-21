@@ -1,5 +1,6 @@
 #include "libfatbat/logging.hpp"
-#include "operation_context.hpp"
+//
+#include "test/operation_context.hpp"
 
 // ------------------------------------------------------------------
 MAKE_LOGGER(testutil_log, "TestUtil")

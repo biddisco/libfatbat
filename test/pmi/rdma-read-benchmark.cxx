@@ -11,20 +11,20 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <thread>
 #include <vector>
 //
 #include <boost/program_options.hpp>
-#include <fmt/format.h>
 #include <hwmalloc/heap.hpp>
 //
 #include "libfatbat/logging.hpp"
 //
-#include "communicator.hpp"
-#include "controller.hpp"
-#include "pmi_helper.hpp"
-#include "polling_helper.hpp"
+#include "test/communicator.hpp"
+#include "test/controller.hpp"
+#include "test/pmi_helper.hpp"
+#include "test/polling_helper.hpp"
 
 // ------------------------------------------------------------------
 MAKE_LOGGER(rdmabench_log, "RdmaBench")
@@ -130,10 +130,10 @@ int main(int argc, char** argv)
 
   if (rank == 0)
   {
-    fmt::print("# rdma read benchmark\n");
-    fmt::print("# iterations={} min_shift={} max_shift={} peers_per_rank={}\n", iterations,
+    std::printf("# rdma read benchmark\n");
+    std::printf("# iterations=%zu min_shift=%zu max_shift=%zu peers_per_rank=%zu\n", iterations,
         min_shift, max_shift, size - 1);
-    fmt::print("{:<12}{:<14}{:<14}{:<14}{:<16}{:<22}\n", "bytes", "iters", "reads", "time_ms",
+    std::printf("%-12s%-14s%-14s%-14s%-16s%-22s\n", "bytes", "iters", "reads", "time_ms",
         "msg_rate_M/s", "agg_read_MB/s");
   }
 
@@ -240,8 +240,8 @@ int main(int argc, char** argv)
 
       if (rank == 0)
       {
-        fmt::print("{:<12}{:<14}{:<14}{:<14.3f}{:<16.3f}{:<22.3f}\n", msg_size, iterations,
-            total_reads, elapsed_ms, msg_rate_mps, agg_read_mbps);
+        std::printf("%-12zu%-14zu%-14zu%-14.3f%-16.3f%-22.3f\n", msg_size, iterations, total_reads,
+            elapsed_ms, msg_rate_mps, agg_read_mbps);
       }
 
       uint32_t const reads_done = (uint32_t) controller.reads_complete_ - reads_complete_before;

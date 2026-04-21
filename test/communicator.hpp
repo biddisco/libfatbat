@@ -18,8 +18,8 @@
 #include "libfatbat/controller_base.hpp"
 #include "libfatbat/memory_region.hpp"
 //
-#include "controller.hpp"
-#include "operation_context.hpp"
+#include "test/controller.hpp"
+#include "test/operation_context.hpp"
 
 // --------------------------------------------------------------------
 MAKE_LOGGER(comm_log, "Comm")

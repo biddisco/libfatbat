@@ -7,10 +7,16 @@
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
  */
-#include <boost/program_options.hpp>
-#include "controller.hpp"
+//
 #include "libfatbat/logging.hpp"
-#include "pmi_helper.hpp"
+#include "libfatbat_defines.hpp"
+//
+#include "test/controller.hpp"
+#include "test/pmi_helper.hpp"
+//
+#ifdef LIBFATBAT_HAVE_BOOST_PROGRAM_OPTIONS
+# include <boost/program_options.hpp>
+#endif
 
 // ------------------------------------------------------------------
 MAKE_LOGGER(pmiboot_log, "PMIBoot")
@@ -20,6 +26,7 @@ int main(int argc, char** argv)
 {
   libfatbat::log::init_from_env();
 
+#ifdef LIBFATBAT_HAVE_BOOST_PROGRAM_OPTIONS
   namespace po = boost::program_options;
   po::options_description desc("Options");
   desc.add_options()("debug", "Enable debug mode");
@@ -29,6 +36,9 @@ int main(int argc, char** argv)
   po::notify(vm);
 
   bool attach_debugger = vm.count("debug") > 0;
+#else
+  bool attach_debugger = false;
+#endif
 
   std::size_t rank, size, nthreads = 2;    // anything >1 triggers thread safety code paths
   test_controller controller;
