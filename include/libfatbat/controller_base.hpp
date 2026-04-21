@@ -43,6 +43,8 @@
 #define DISABLE_FI_INJECT
 // #define EXCESSIVE_POLLING_BACKOFF_MICRO_S 50
 
+extern char* fi_tostr_r(char* buf, size_t len, void const* data, enum fi_type datatype);
+
 // ------------------------------------------------------------------
 MAKE_LOGGER(bctrl_log, "BaseCtrl")
 
@@ -995,9 +997,11 @@ public:
       // Print fabric info to a human-readable string if available
       if (display_fabric_info_ && fabric_info_)
       {
-        std::array<char, 8192> buf;
-        std::cout << "Libfabric fabric info:\n"
-                  << fi_tostr_r(buf.data(), buf.size(), fabric_info_, FI_TYPE_INFO) << std::endl;
+//         std::array<char, 8192> buf;
+//         std::cout << "Libfabric fabric info:\n"
+//                   << fi_tostr_r(static_cast<char*>(buf.data()), static_cast<size_t>(buf.size()),
+//                          static_cast<void const*>(fabric_info_), FI_TYPE_INFO)
+//                   << std::endl;
       }
       fi_freeinfo(fabric_hints_);
     }
