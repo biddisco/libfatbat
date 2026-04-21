@@ -1,13 +1,14 @@
+include(FindPackageHandleStandardArgs)
 find_package(PkgConfig QUIET)
 
 # look for cray pmi...
 pkg_check_modules(PC_PMI_CRAY QUIET cray-pmi)
-message(STATUS "PMI_CRAY_FOUND: ${PC_PMI_CRAY_FOUND}")
+message(STATUS "PackageConfig PMI_CRAY_FOUND: ${PC_PMI_CRAY_FOUND}")
 
 # look for the regular pmi if we couldn't find the cray package
 if(NOT PC_PMI_CRAY_FOUND)
   pkg_check_modules(PC_PMI QUIET pmi)
-  message(STATUS "PMI_FOUND: ${PC_PMI_FOUND}")
+  message(STATUS "PackageConfig PMI_FOUND: ${PC_PMI_FOUND}")
 endif()
 
 find_path(
@@ -54,7 +55,6 @@ if(NOT PMI_LIBRARY OR NOT PMI_INCLUDE_DIR)
   return()
 endif()
 
-include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(PMI2 DEFAULT_MSG PMI_LIBRARY PMI_INCLUDE_DIR)
 
 mark_as_advanced(PMI_ROOT PMI_LIBRARY PMI_INCLUDE_DIR)
@@ -66,6 +66,5 @@ if(NOT TARGET PMI2::pmi2 AND PMI2_FOUND)
                                                            ${PMI_INCLUDE_DIR}
   )
   target_include_directories(PMI2::pmi2 INTERFACE ${PMI_INCLUDE_DIR})
-  target_compile_definitions(PMI2::pmi2 INTERFACE "FATBAT_PMI2_ENABLED")
   set(PMI_LIBRARY_TARGET PMI2::pmi2)
 endif()

@@ -14,10 +14,10 @@
 #include <string>
 #include <tuple>
 //
-#ifdef FATBAT_PMI2_ENABLED
+#ifdef LIBFATBAT_PMI2_ENABLED
 # include <pmi2.h>
 #endif
-#ifdef FATBAT_PMIx_ENABLED
+#ifdef LIBFATBAT_PMIx_ENABLED
 # include <pmix.h>
 #endif
 
@@ -50,7 +50,7 @@ struct pmi_helper
   uint32_t rank = -1;
   uint32_t node = -1;
   uint32_t size = -1;
-#ifdef FATBAT_PMIx_ENABLED
+#ifdef LIBFATBAT_PMIx_ENABLED
   pmix_proc_t myproc;
 #endif
 
@@ -69,7 +69,7 @@ struct pmi_helper
   // --------------------------------------------------------------------
   // Implementation that is used when PMI2 is used on the system
   // --------------------------------------------------------------------
-#ifdef FATBAT_PMI2_ENABLED
+#ifdef LIBFATBAT_PMI2_ENABLED
   // --------------------------------------------------------------------
   void fence() { PMI2_KVS_Fence(); }
 
@@ -154,7 +154,7 @@ struct pmi_helper
   // --------------------------------------------------------------------
   // Implementation that is used when PMIx is used on the system
   // --------------------------------------------------------------------
-#ifdef FATBAT_PMIx_ENABLED
+#ifdef LIBFATBAT_PMIx_ENABLED
 
 # define CHECK_PMIX(name, f)                                                                       \
    {                                                                                               \

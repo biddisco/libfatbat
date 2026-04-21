@@ -2,10 +2,11 @@ include(FindPackageHandleStandardArgs)
 find_package(PkgConfig QUIET)
 
 if(PkgConfig_FOUND)
-  pkg_check_modules(PMIx REQUIRED pmix)
+  pkg_check_modules(PMIx QUIET pmix)
 endif()
 
-message(STATUS "PMIx_FOUND: ${PMIx_FOUND}")
+message(STATUS "PackageConfig PMIx_FOUND: ${PMIx_FOUND}")
+
 if(PMIx_FOUND)
   message(STATUS "PMIx_VERSION: ${PMIx_VERSION}")
   set(PMIx_LIBRARIES ${PMIx_LINK_LIBRARIES})
@@ -44,6 +45,5 @@ if(NOT TARGET PMIX::pmix AND PMIx_FOUND)
                                                               ${PMIx_INCLUDE_DIRS}
   )
   target_include_directories(PMIX::pmix INTERFACE ${PMIx_INCLUDE_DIRS})
-  target_compile_definitions(PMIX::pmix INTERFACE "FATBAT_PMIx_ENABLED")
   set(PMI_LIBRARY_TARGET PMIX::pmix)
 endif()
