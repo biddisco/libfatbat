@@ -74,14 +74,16 @@ set_property(
 )
 
 # ---------------------------------------------------------------------
-# optional : implement some counters of internal actions
+# options 
 # ---------------------------------------------------------------------
 option(FATBAT_WITH_COUNTERS "Enable internal counters (default: OFF)" ON)
+option(FATBAT_WITH_HWMALLOC "Enable hwmalloc pinned memory heaps (default: OFF)" OFF)
 
 # ---------------------------------------------------------------------
 # Libfabric
 # ---------------------------------------------------------------------
 find_package(Libfabric REQUIRED)
+colour_message(STATUS ${Green} "✅ Libfabric found ${Libfabric_VERSION}")
 
 # ---------------------------------------------------------------------
 # Boost we use crc and lockfree, but these are header only not in COMPONENTS
@@ -111,27 +113,39 @@ if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
   endif()
 endif()
 
+# ------------------------------------------------------------------------------
+# Shim to alias libnuma if ound already using mscclpp
+# ------------------------------------------------------------------------------
+if(TARGET MSCCLPP::numa)
+  add_library(NUMA::libnuma ALIAS MSCCLPP::numa)
+endif()
+
 # ---------------------------------------------------------------------
 # hwmalloc dependency
 # ---------------------------------------------------------------------
-find_package(hwmalloc QUIET)
+if(FATBAT_WITH_HWMALLOC)
+  find_package(hwmalloc QUIET)
+  if(hwmalloc_FOUND OR TARGET hwmalloc)
+    colour_message(STATUS ${Green} "✅ hwmalloc found ${hwmalloc_VERSION}")
+  else()
+    FetchContent_Declare(
+      hwmalloc GIT_REPOSITORY https://github.com/ghex-org/hwmalloc.git GIT_TAG jb-develop
+    )
+
+    FetchContent_GetProperties(hwmalloc)
+    if(NOT hwmalloc_POPULATED)
+      message(STATUS "✅ hwmalloc unpopulated: fetching: ${FETCHCONTENT_SOURCE_DIR_HWMALLOC}")
+      FetchContent_MakeAvailable(hwmalloc)
+      message(STATUS "✅ hwmalloc building: (${hwmalloc_VERSION}) in ${hwmalloc_BINARY_DIR}")
+    endif()
+  endif()
+endif()
+
 # If present, override source directory, leave binary dir as default
 if(NOT TARGET hwmalloc AND EXISTS "${CMAKE_SOURCE_DIR}/extern/hwmalloc"
    AND NOT FETCHCONTENT_SOURCE_DIR_HWMALLOC
 )
   set(FETCHCONTENT_SOURCE_DIR_HWMALLOC "${CMAKE_SOURCE_DIR}/extern/hwmalloc")
-endif()
-
-if(NOT TARGET hwmalloc AND NOT hwmalloc_FOUND)
-  FetchContent_Declare(
-    hwmalloc GIT_REPOSITORY https://github.com/ghex-org/hwmalloc.git GIT_TAG jb-develop
-  )
-  FetchContent_GetProperties(hwmalloc)
-  if(NOT hwmalloc_POPULATED)
-    message(STATUS "✅ hwmalloc unpopulated: fetching: ${FETCHCONTENT_SOURCE_DIR_HWMALLOC}")
-    FetchContent_MakeAvailable(hwmalloc)
-    message(STATUS "✅ hwmalloc building: (${hwmalloc_VERSION}) in ${hwmalloc_BINARY_DIR}")
-  endif()
 endif()
 
 # ------------------------------------------------------------------------------
@@ -146,7 +160,7 @@ endif()
 # ---------------------------------------------------------------------
 add_library(libfatbat INTERFACE)
 target_link_libraries(libfatbat INTERFACE Boost::headers)
-target_link_libraries(libfatbat INTERFACE HWMALLOC::hwmalloc)
+target_link_libraries(libfatbat INTERFACE $<$<BOOL:${FATBAT_WITH_HWMALLOC}>:HWMALLOC::hwmalloc>)
 target_link_libraries(libfatbat INTERFACE libfabric::libfabric)
 
 # add spdlog and fmt if logging is enabled and set compile definitions for logging

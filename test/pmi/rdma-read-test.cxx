@@ -210,6 +210,7 @@ int main(int argc, char** argv)
       LIBFATBAT_INFO(rdmatest_log, "{:<20} RMA buffers : rank {}", "read complete", rank);
     }
   }
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
   pmi.fence();
   pmi.finalize_PMI();
 
