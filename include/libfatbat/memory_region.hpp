@@ -102,13 +102,14 @@ struct fi_mr_attr {
       if (device_id >= 0)
       {
 #ifdef LIBFATBAT_ENABLE_DEVICE
+        LIBFATBAT_SCOPE(memrgn_log, "{} {} {:#10x} {:05}", "device memory", buf, len, device_id);
         attr.device.cuda = device_id;
         int handle = hwmalloc::get_device_id();
         attr.device.cuda = handle;
-# if defined(OOMPH_DEVICE_CUDA)
+# if defined(LIBFATBAT_ENABLE_CUDA)
         attr.iface = FI_HMEM_CUDA;
         LIBFATBAT_TRACE(memrgn_log, "CUDA set device id {} {}", device_id, handle);
-# elif defined(OOMPH_DEVICE_HIP)
+# elif defined(LIBFATBAT_ENABLE_HIP)
         attr.iface = FI_HMEM_ROCR;
         LIBFATBAT_TRACE(memrgn_log, "HIP set device id {} {}", device_id, handle);
 # endif

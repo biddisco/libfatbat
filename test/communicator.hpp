@@ -66,7 +66,15 @@ struct memory_context
 inline memory_context::region_type register_memory(
     memory_context& c, void* const ptr, std::size_t size)
 {
+  LIBFATBAT_SCOPE(libfatbat::memrgn_log, "{} {} {:#10x} {:05}", __func__, ptr, size, -2);
   return c.make_region(ptr, size, -2);
+}
+
+inline memory_context::region_type register_device_memory(
+    memory_context& c, int device_id, void* ptr, std::size_t size)
+{
+  LIBFATBAT_SCOPE(libfatbat::memrgn_log, "{} {} {:#10x} {:05}", __func__, ptr, size, device_id);
+  return c.make_region(ptr, size, device_id);
 }
 
 // --------------------------------------------------------------------

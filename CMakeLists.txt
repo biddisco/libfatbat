@@ -74,7 +74,7 @@ set_property(
 )
 
 # ---------------------------------------------------------------------
-# options 
+# options
 # ---------------------------------------------------------------------
 option(FATBAT_WITH_COUNTERS "Enable internal counters (default: OFF)" ON)
 option(FATBAT_WITH_HWMALLOC "Enable hwmalloc pinned memory heaps (default: OFF)" OFF)
@@ -188,7 +188,9 @@ target_include_directories(libfatbat INTERFACE "$<BUILD_INTERFACE:${PROJECT_BINA
 # TODO - check for HIP gpu support in hwmalloc and use that instead
 # ------------------------------------------------------------------------------
 if(HWMALLOC_ENABLE_DEVICE)
+  # @TODO - add libfabric device options and select cuda/hip/other
   target_compile_definitions(libfatbat INTERFACE LIBFATBAT_ENABLE_DEVICE)
+  target_compile_definitions(libfatbat INTERFACE LIBFATBAT_ENABLE_CUDA)
   include(CheckLanguage)
   check_language(CUDA)
 
