@@ -105,10 +105,10 @@ namespace libfatbat::log {
       : message_(make_scope_message(format, args...))
       , logger_(std::move(logger))
     {
-      LIBFATBAT_DEBUG(logger_, "{:<20} {}", ">> enter <<", message_);
+      LIBFATBAT_TRACE(logger_, "{:<20} {}", ">> enter <<", message_);
     }
 
-    ~scoped_var() { LIBFATBAT_DEBUG(logger_, "{:<20} {}", "<< leave >>", message_); }
+    ~scoped_var() { LIBFATBAT_TRACE(logger_, "{:<20} {}", "<< leave >>", message_); }
   };
 
   // -------------------------------------------------------------------------
@@ -222,7 +222,7 @@ namespace libfatbat::log {
     spdlog::cfg::load_env_levels();
 
     // We additionally support LIBFATBAT_LEVEL as an override.
-    char const* level = std::getenv("LIBFATBAT_LEVEL");
+    char const* level = std::getenv("LIBFATBAT_LOG_LEVEL");
     if (level && level[0] != '\0')
     {
       if (static_cast<spdlog::level::level_enum>(SPDLOG_ACTIVE_LEVEL) >
