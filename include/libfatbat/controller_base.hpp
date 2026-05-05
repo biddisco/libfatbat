@@ -1282,7 +1282,7 @@ public:
         std::string err = std::to_string(addrlen) + "=" + std::to_string(locality_defs::array_size);
         libfatbat::fabric_error(ret, "fi_getname - error (address size ?) " + err);
       }
-      return locality(local_addr, av_);
+      return locality(local_addr, av_, 0xffff'ffff);
     }
 
     // --------------------------------------------------------------------

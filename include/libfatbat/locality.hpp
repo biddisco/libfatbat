@@ -88,20 +88,20 @@ namespace libfatbat {
 
     static char const* type() { return "libfabric"; }
 
-    explicit locality(locality_data const& in_data, struct fid_av* av)
+    explicit locality(locality_data const& in_data, struct fid_av* av, fi_addr_t fi_addr /*= 0xffff'ffff*/)
     {
       std::memcpy(&data_[0], &in_data[0], locality_defs::array_size);
-      fi_address_ = 0;
+      fi_address_ = fi_addr;
       av_ = av;
-      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "explicit construct", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}, index {}", "explicit construct", to_str(), fi_address_);
     }
 
     locality()
     {
       std::memset(&data_[0], 0x00, locality_defs::array_size);
-      fi_address_ = 0;
+      fi_address_ = 0xffff'ffff;
       av_ = nullptr;
-      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "default construct", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}, index {}", "default construct", to_str(), fi_address_);
     }
 
     locality(locality const& other)
@@ -109,7 +109,7 @@ namespace libfatbat {
       , fi_address_(other.fi_address_)
       , av_(other.av_)
     {
-      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "copy construct", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}, index {}", "copy construct", to_str(), fi_address_);
     }
 
     locality(locality const& other, fi_addr_t addr, struct fid_av* av)
@@ -117,7 +117,7 @@ namespace libfatbat {
       , fi_address_(addr)
       , av_(av)
     {
-      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "copy fi construct", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}, index {}", "copy fi construct", to_str(), fi_address_);
     }
 
     locality(locality&& other)
@@ -125,7 +125,7 @@ namespace libfatbat {
       , fi_address_(other.fi_address_)
       , av_(other.av_)
     {
-      LIBFATBAT_TRACE(locality_log, "{:<20} {}", "move construct", to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {}, index {}", "move construct", to_str(), fi_address_);
     }
 
     // provided to support sockets mode bootstrap
@@ -140,7 +140,7 @@ namespace libfatbat {
       inet_pton(AF_INET, address.c_str(), &(socket_data.sin_addr));
       //
       std::memcpy(&data_[0], &socket_data, locality_defs::array_size);
-      fi_address_ = 0;
+      fi_address_ = 0xffff'ffff;
       av_ = nullptr;
       LIBFATBAT_TRACE(locality_log, "{:<20} {}", "string constructing", to_str());
     }
@@ -150,19 +150,21 @@ namespace libfatbat {
       data_ = other.data_;
       fi_address_ = other.fi_address_;
       av_ = other.av_;
-      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}", "copy operator", to_str(), other.to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}, index {}", "copy operator", to_str(), other.to_str(), fi_address_);
       return *this;
     }
 
     bool operator==(locality const& other)
     {
-      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}", "equality operator", to_str(), other.to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}, index {}", "equality operator", to_str(), other.to_str(), fi_address_);
       return std::memcmp(&data_, &other.data_, locality_defs::array_size) == 0;
     }
 
     inline fi_addr_t const& fi_address() const { return fi_address_; }
 
     inline void set_fi_address(fi_addr_t fi_addr) { fi_address_ = fi_addr; }
+
+    inline auto get_av() const { return av_; }
 
     inline uint16_t port() const
     {
@@ -188,7 +190,7 @@ namespace libfatbat {
 private:
     friend bool operator==(locality const& lhs, locality const& rhs)
     {
-      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}", "equality friend", lhs.to_str(), rhs.to_str());
+      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}, index {}", "equality friend", lhs.to_str(), rhs.to_str(), lhs.fi_address_);
       return ((lhs.data_ == rhs.data_) && (lhs.fi_address_ == rhs.fi_address_));
     }
 
