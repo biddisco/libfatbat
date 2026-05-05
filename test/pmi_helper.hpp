@@ -25,14 +25,7 @@
 #include "libfatbat/controller_base.hpp"
 #include "libfatbat/locality.hpp"
 #include "libfatbat/logging.hpp"
-
-// boost : base64 encode/decode (for exchanging addresses via PMI KVS)
-#include <boost/archive/iterators/base64_from_binary.hpp>
-#include <boost/archive/iterators/binary_from_base64.hpp>
-#include <boost/archive/iterators/transform_width.hpp>
-using namespace boost::archive::iterators;
-typedef base64_from_binary<transform_width<std::string::const_iterator, 6, 8>> base64_t;
-typedef transform_width<binary_from_base64<std::string::const_iterator>, 8, 6> binary_t;
+#include "libfatbat/util/base64.hpp"
 
 // ------------------------------------------------------------------
 MAKE_LOGGER(pmihelp_log, "PMIHelp")
@@ -101,8 +94,8 @@ struct pmi_helper
     // we must pass our libfabric data to other nodes
     // encode it as a string to put into the PMI KV store
     auto here = controller->here();
-    std::string encoded_locality(base64_t((char const*) (here.fabric_data().data())),
-        base64_t((char const*) (here.fabric_data().data()) + locality_defs::array_size));
+    std::string encoded_locality = base64_encode(
+        (unsigned char const*) (here.fabric_data().data()), locality_defs::array_size);
     int encoded_length = encoded_locality.size();
     LIBFATBAT_DEBUG(
         pmihelp_log, "{:<20} {} : length {}", "Encoded locality", encoded_locality, encoded_length);
@@ -135,8 +128,9 @@ struct pmi_helper
         }
         // decode the string back to raw locality data
         LIBFATBAT_DEBUG(pmihelp_log, "{:<20} for rank {} on rank {:04}", "address decode", i, rank);
-        std::copy(binary_t(encoded_data), binary_t(encoded_data + encoded_length),
-            (new_locality.fabric_data_writable()));
+        auto decoded = base64_decode(std::string(encoded_data, encoded_length));
+        std::copy(decoded.begin(), decoded.end(), new_locality.fabric_data_writable());
+        new_locality.set_fi_address(fi_addr_t(i));
       }
       else
       {
@@ -198,7 +192,7 @@ struct pmi_helper
     size = val->data.uint32;
     PMIX_VALUE_RELEASE(val);
 
-    LIBFATBAT_DEBUG(pmihelp_log, "{:<20}: {} Rank {}/{} : on Node {}", "Process",
+    LIBFATBAT_DEBUG(pmihelp_log, "{:<20} '{}' Rank {}/{} on Node {}", "Process",
         PMIx_Proc_string(&myproc), rank, size, node);
     return std::make_tuple(rank, size);
   }
@@ -223,8 +217,8 @@ struct pmi_helper
     LIBFATBAT_DEBUG(pmihelp_log, "{:<20} {} : rank {:04}, length {}", "Locality string",
         encoded_address, rank, encoded_address.size());
 
-    std::string encoded_locality(base64_t((char const*) (here.fabric_data().data())),
-        base64_t((char const*) (here.fabric_data().data()) + locality_defs::array_size));
+    std::string encoded_locality = base64_encode(
+        (unsigned char const*) (here.fabric_data().data()), locality_defs::array_size);
     int encoded_length = encoded_locality.size();
     LIBFATBAT_DEBUG(pmihelp_log, "{:<20} {} {} ({})", "Encoded locality", encoded_locality,
         encoded_length, here.to_str());
@@ -271,8 +265,9 @@ struct pmi_helper
         // decode the string back to raw locality data
         LIBFATBAT_DEBUG(pmihelp_log, "{:<20} rank {:04} decode from rank {:04}", "address decode",
             myproc.rank, r);
-        std::copy(binary_t(encoded_address.begin()), binary_t(encoded_address.end()),
-            (new_locality.fabric_data_writable()));
+        auto decoded = base64_decode(encoded_address);
+        std::copy(decoded.begin(), decoded.end(), new_locality.fabric_data_writable());
+        new_locality.set_fi_address(fi_addr_t(r));
       }
       else
       {
