@@ -54,7 +54,7 @@ namespace libfatbat {
         size_t len, uint64_t access_flags, uint64_t offset, uint64_t request_key,
         struct fid_mr** mr)
     {
-      LIBFATBAT_SCOPE(memrgn_log, "{} {} {:#10x} {:05}", __func__, buf, len, device_id);
+      LIBFATBAT_SCOPE(memrgn_log, "{:<20} {} {:#10x} {:05}", __func__, buf, len, device_id);
       //
       struct iovec addresses = {/*.iov_base = */ const_cast<void*>(buf), /*.iov_len = */ len};
       fi_mr_attr attr = {
@@ -77,7 +77,7 @@ namespace libfatbat {
       if (device_id >= 0)
       {
 #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
-        LIBFATBAT_SCOPE(memrgn_log, "{} {} {:#10x} {:05}", "device memory", buf, len, device_id);
+        LIBFATBAT_SCOPE(memrgn_log, "{:<20} {} {:#10x} {:05}", "device memory", buf, len, device_id);
         attr.device.cuda = device_id;
         int handle = device_id;    // hwmalloc::get_device_id();
 //        attr.device.cuda = handle;
@@ -136,7 +136,7 @@ namespace libfatbat {
       , address_{addr}
       , size_{uint32_t(size)}
     {
-      LIBFATBAT_SCOPE(memrgn_log, "{} {} {:#10x} {:05}", __func__, (void*) addr, size, -1);
+      LIBFATBAT_SCOPE(memrgn_log, "{:<20} {} {:#10x} {:05}", __func__, (void*) addr, size, -1);
     }
 
     // --------------------------------------------------------------------
