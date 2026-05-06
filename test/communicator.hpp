@@ -17,6 +17,7 @@
 //
 #include "libfatbat/controller_base.hpp"
 #include "libfatbat/memory_region.hpp"
+#include "libfatbat/memory_segment.hpp"
 //
 #include "test/controller.hpp"
 #include "test/operation_context.hpp"
@@ -239,7 +240,7 @@ struct communicator
   {
     LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
 
-#if LIBFATBAT_ENABLE_DEVICE
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
     auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
 #else
     auto const& reg = ptr.handle();
@@ -259,7 +260,7 @@ struct communicator
     LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
     std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
 
-#if LIBFATBAT_ENABLE_DEVICE
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
     auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
 #else
     auto const& reg = ptr.handle();
@@ -288,7 +289,7 @@ struct communicator
         "size {:06} op_ctx {:p} req {:p}",
         "send", rank(), dst, reg, tag, stag, (void*) (reg.get_address()), size, reg.get_size(),
         (void*) request, (void*) request);
-#if LIBFATBAT_ENABLE_DEVICE
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
     if (!ptr.on_device())
     {
       LIBFATBAT_DEBUG(comm_log, "{:<20} mem {}", "send region CRC32",
@@ -307,7 +308,7 @@ struct communicator
     LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
     std::uint64_t stag = make_tag64(tag, 0);    // this->m_context->get_context_tag());
 
-#if LIBFATBAT_ENABLE_DEVICE
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
     auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
 #else
     auto const& reg = ptr.handle();
@@ -322,7 +323,7 @@ struct communicator
         "recv", rank(), src, tag, stag, (void*) (reg.get_address()), size, reg.get_size(),
         (void*) request, (void*) request);
 
-#if LIBFATBAT_ENABLE_DEVICE
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
     if (!ptr.on_device())
     {
       LIBFATBAT_DEBUG(comm_log, "{:<20} mem {}", "recv region CRC32",

@@ -45,7 +45,7 @@ int main(int argc, char** argv)
   pmi_helper pmi;
 
   std::tie(rank, size) = pmi.init_PMI(attach_debugger);
-  controller.initialize(HAVE_LIBFATBAT_PROVIDER, rank, size, nthreads);
+  controller.initialize(LIBFATBAT_HAVE_PROVIDER, rank, size, nthreads);
   pmi.boot_PMI(&controller);
   pmi.finalize_PMI();
   {

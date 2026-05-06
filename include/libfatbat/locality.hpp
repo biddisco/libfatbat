@@ -25,33 +25,33 @@
 #include "libfatbat_defines.hpp"
 
 // Different providers use different address formats that we accommodate in our locality object.
-#ifdef HAVE_LIBFATBAT_GNI
-# define HAVE_LIBFATBAT_LOCALITY_SIZE 48
+#ifdef LIBFATBAT_HAVE_PROVIDER_GNI
+# define LIBFATBAT_HAVE_PROVIDER_LOCALITY_SIZE 48
 #endif
 
-#ifdef HAVE_LIBFATBAT_CXI
-# ifdef HAVE_LIBFATBAT_CXI_1_15
-#  define HAVE_LIBFATBAT_LOCALITY_SIZE sizeof(int)
+#ifdef LIBFATBAT_HAVE_PROVIDER_CXI
+# ifdef LIBFATBAT_HAVE_PROVIDER_CXI_1_15
+#  define LIBFATBAT_HAVE_PROVIDER_LOCALITY_SIZE sizeof(int)
 # else
-#  define HAVE_LIBFATBAT_LOCALITY_SIZE sizeof(long int)
+#  define LIBFATBAT_HAVE_PROVIDER_LOCALITY_SIZE sizeof(long int)
 # endif
 #endif
 
-#ifdef HAVE_LIBFATBAT_EFA
-# define HAVE_LIBFATBAT_LOCALITY_SIZE 32
+#ifdef LIBFATBAT_HAVE_PROVIDER_EFA
+# define LIBFATBAT_HAVE_PROVIDER_LOCALITY_SIZE 32
 #endif
 
-#if defined(HAVE_LIBFATBAT_VERBS) || defined(HAVE_LIBFATBAT_TCP) ||                                \
-    defined(HAVE_LIBFATBAT_SOCKETS) || defined(HAVE_LIBFATBAT_PSM2)
-# define HAVE_LIBFATBAT_LOCALITY_SIZE 16
+#if defined(LIBFATBAT_HAVE_PROVIDER_VERBS) || defined(LIBFATBAT_HAVE_PROVIDER_TCP) ||              \
+    defined(LIBFATBAT_HAVE_PROVIDER_SOCKETS) || defined(LIBFATBAT_HAVE_PROVIDER_PSM2)
+# define LIBFATBAT_HAVE_PROVIDER_LOCALITY_SIZE 16
 #endif
 
-#if defined(HAVE_LIBFATBAT_SHM)
-# define HAVE_LIBFATBAT_LOCALITY_SIZE 24
+#if defined(LIBFATBAT_HAVE_PROVIDER_SHM)
+# define LIBFATBAT_HAVE_PROVIDER_LOCALITY_SIZE 24
 #endif
 
-#if defined(HAVE_LIBFATBAT_LNX)
-# define HAVE_LIBFATBAT_LOCALITY_SIZE 32
+#if defined(LIBFATBAT_HAVE_PROVIDER_LNX)
+# define LIBFATBAT_HAVE_PROVIDER_LOCALITY_SIZE 32
 #endif
 
 namespace libfatbat {
@@ -77,8 +77,8 @@ namespace libfatbat {
   // --------------------------------------------------------------------
   namespace locality_defs {
     // the number of 32bit ints stored in our array
-    uint32_t const array_size = HAVE_LIBFATBAT_LOCALITY_SIZE;
-    uint32_t const array_length = HAVE_LIBFATBAT_LOCALITY_SIZE / 4;
+    uint32_t const array_size = LIBFATBAT_HAVE_PROVIDER_LOCALITY_SIZE;
+    uint32_t const array_length = LIBFATBAT_HAVE_PROVIDER_LOCALITY_SIZE / 4;
   }    // namespace locality_defs
 
   struct locality
@@ -88,12 +88,14 @@ namespace libfatbat {
 
     static char const* type() { return "libfabric"; }
 
-    explicit locality(locality_data const& in_data, struct fid_av* av, fi_addr_t fi_addr /*= 0xffff'ffff*/)
+    explicit locality(
+        locality_data const& in_data, struct fid_av* av, fi_addr_t fi_addr /*= 0xffff'ffff*/)
     {
       std::memcpy(&data_[0], &in_data[0], locality_defs::array_size);
       fi_address_ = fi_addr;
       av_ = av;
-      LIBFATBAT_TRACE(locality_log, "{:<20} {}, index {}", "explicit construct", to_str(), fi_address_);
+      LIBFATBAT_TRACE(
+          locality_log, "{:<20} {}, index {}", "explicit construct", to_str(), fi_address_);
     }
 
     locality()
@@ -101,7 +103,8 @@ namespace libfatbat {
       std::memset(&data_[0], 0x00, locality_defs::array_size);
       fi_address_ = 0xffff'ffff;
       av_ = nullptr;
-      LIBFATBAT_TRACE(locality_log, "{:<20} {}, index {}", "default construct", to_str(), fi_address_);
+      LIBFATBAT_TRACE(
+          locality_log, "{:<20} {}, index {}", "default construct", to_str(), fi_address_);
     }
 
     locality(locality const& other)
@@ -117,7 +120,8 @@ namespace libfatbat {
       , fi_address_(addr)
       , av_(av)
     {
-      LIBFATBAT_TRACE(locality_log, "{:<20} {}, index {}", "copy fi construct", to_str(), fi_address_);
+      LIBFATBAT_TRACE(
+          locality_log, "{:<20} {}, index {}", "copy fi construct", to_str(), fi_address_);
     }
 
     locality(locality&& other)
@@ -150,13 +154,15 @@ namespace libfatbat {
       data_ = other.data_;
       fi_address_ = other.fi_address_;
       av_ = other.av_;
-      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}, index {}", "copy operator", to_str(), other.to_str(), fi_address_);
+      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}, index {}", "copy operator", to_str(),
+          other.to_str(), fi_address_);
       return *this;
     }
 
     bool operator==(locality const& other)
     {
-      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}, index {}", "equality operator", to_str(), other.to_str(), fi_address_);
+      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}, index {}", "equality operator", to_str(),
+          other.to_str(), fi_address_);
       return std::memcmp(&data_, &other.data_, locality_defs::array_size) == 0;
     }
 
@@ -190,7 +196,8 @@ namespace libfatbat {
 private:
     friend bool operator==(locality const& lhs, locality const& rhs)
     {
-      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}, index {}", "equality friend", lhs.to_str(), rhs.to_str(), lhs.fi_address_);
+      LIBFATBAT_TRACE(locality_log, "{:<20} {} {}, index {}", "equality friend", lhs.to_str(),
+          rhs.to_str(), lhs.fi_address_);
       return ((lhs.data_ == rhs.data_) && (lhs.fi_address_ == rhs.fi_address_));
     }
 

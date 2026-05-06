@@ -30,7 +30,7 @@ class test_controller : public libfatbat::controller_base<test_controller, opera
   // --------------------------------------------------------------------
   constexpr fi_threading threadlevel_flags()
   {
-#if defined(HAVE_LIBFATBAT_GNI) || defined(HAVE_LIBFATBAT_LNX)
+#if defined(LIBFATBAT_HAVE_PROVIDER_GNI) || defined(LIBFATBAT_HAVE_PROVIDER_LNX)
     return FI_THREAD_ENDPOINT;
 #else
     return FI_THREAD_SAFE;
@@ -41,10 +41,10 @@ class test_controller : public libfatbat::controller_base<test_controller, opera
   uint64_t caps_flags(uint64_t /*available_flags*/) const
   {
     uint64_t flags_required = FI_TAGGED;
-#ifndef HAVE_LIBFATBAT_LNX
+#ifndef LIBFATBAT_HAVE_PROVIDER_LNX
     flags_required |= FI_MSG | FI_TAGGED | FI_RECV | FI_SEND | FI_RMA | FI_READ | FI_WRITE |
         FI_REMOTE_READ | FI_REMOTE_WRITE;
-# if LIBFATBAT_ENABLE_DEVICE
+# ifdef LIBFATBAT_HAVE_GPU_SUPPORT
     flags_required |= FI_HMEM;
 # endif
 #endif

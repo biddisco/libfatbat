@@ -34,6 +34,7 @@ enable_testing()
 # ------------------------------------------------------------------------------
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
+include(CMakeDependentOption)
 include(FetchContent)
 include(Messages)
 include(libfatbat_macros)
@@ -78,6 +79,9 @@ set_property(
 # ---------------------------------------------------------------------
 option(FATBAT_WITH_COUNTERS "Enable internal counters (default: OFF)" ON)
 option(FATBAT_WITH_HWMALLOC "Enable hwmalloc pinned memory heaps (default: OFF)" OFF)
+cmake_dependent_option(
+  FATBAT_WITH_GPU_SUPPORT "Enable device support (default: OFF)" OFF "FATBAT_WITH_HWMALLOC" OFF
+)
 
 # ---------------------------------------------------------------------
 # Libfabric
@@ -86,7 +90,7 @@ find_package(Libfabric REQUIRED)
 colour_message(STATUS ${Green} "✅ Libfabric found ${Libfabric_VERSION}")
 
 # ---------------------------------------------------------------------
-# Boost we use crc and lockfree, but these are header only not in COMPONENTS
+# Boost we use crc and lockfree, but these are header only
 # ---------------------------------------------------------------------
 find_package(Boost REQUIRED CONFIG COMPONENTS headers)
 # We optionally use program options in some benchmarks/tests
@@ -114,11 +118,22 @@ if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
 endif()
 
 # ------------------------------------------------------------------------------
-# Shim to alias libnuma if ound already using mscclpp
+# Shim to alias libnuma if found already using mscclpp
 # ------------------------------------------------------------------------------
 if(TARGET MSCCLPP::numa)
   add_library(NUMA::libnuma ALIAS MSCCLPP::numa)
 endif()
+
+# ------------------------------------------------------------------------------
+# Before adding HWMALLOC - set GPU support accordingly
+# ------------------------------------------------------------------------------
+if(FATBAT_WITH_GPU_SUPPORT)
+  libfatbat_add_config_define_namespace(DEFINE LIBFATBAT_HAVE_GPU_SUPPORT NAMESPACE libfatbat)
+endif()
+set(HWMALLOC_ENABLE_DEVICE ${FATBAT_WITH_GPU_SUPPORT}
+    CACHE BOOL "Enable device support in hwmalloc" FORCE
+)
+mark_as_advanced(HWMALLOC_ENABLE_DEVICE)
 
 # ---------------------------------------------------------------------
 # hwmalloc dependency
@@ -139,6 +154,7 @@ if(FATBAT_WITH_HWMALLOC)
       message(STATUS "✅ hwmalloc building: (${hwmalloc_VERSION}) in ${hwmalloc_BINARY_DIR}")
     endif()
   endif()
+  libfatbat_add_config_define_namespace(DEFINE LIBFATBAT_HAVE_HWMALLOC NAMESPACE libfatbat)
 endif()
 
 # If present, override source directory, leave binary dir as default
@@ -152,7 +168,7 @@ endif()
 # Performance counters
 # ------------------------------------------------------------------------------
 if(FATBAT_WITH_COUNTERS)
-  libfatbat_add_config_define_namespace(DEFINE FATBAT_HAVE_COUNTERS NAMESPACE libfatbat)
+  libfatbat_add_config_define_namespace(DEFINE LIBFATBAT_HAVE_COUNTERS NAMESPACE libfatbat)
 endif()
 
 # ---------------------------------------------------------------------
@@ -189,8 +205,8 @@ target_include_directories(libfatbat INTERFACE "$<BUILD_INTERFACE:${PROJECT_BINA
 # ------------------------------------------------------------------------------
 if(HWMALLOC_ENABLE_DEVICE)
   # @TODO - add libfabric device options and select cuda/hip/other
-  target_compile_definitions(libfatbat INTERFACE LIBFATBAT_ENABLE_DEVICE)
-  target_compile_definitions(libfatbat INTERFACE LIBFATBAT_ENABLE_CUDA)
+  # target_compile_definitions(libfatbat INTERFACE LIBFATBAT_ ENABLE_DEVICE)
+  target_compile_definitions(libfatbat INTERFACE LIBFATBAT_HAVE_CUDA)
   include(CheckLanguage)
   check_language(CUDA)
 

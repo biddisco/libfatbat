@@ -81,7 +81,7 @@ set_property(
 )
 
 libfatbat_add_config_define_namespace(
-  DEFINE HAVE_LIBFATBAT_PROVIDER VALUE "\"${FATBAT_PROVIDER}\"" NAMESPACE libfatbat
+  DEFINE LIBFATBAT_HAVE_PROVIDER VALUE "\"${FATBAT_PROVIDER}\"" NAMESPACE libfatbat
 )
 
 option(FATBAT_V1_API "Support older libfabric@1.15" OFF)
@@ -91,7 +91,9 @@ endif()
 
 # Map provider string to uppercase and create a define
 string(TOUPPER "${FATBAT_PROVIDER}" PROVIDER_UPPER)
-libfatbat_add_config_define_namespace(DEFINE "HAVE_LIBFATBAT_${PROVIDER_UPPER}" NAMESPACE libfatbat)
+libfatbat_add_config_define_namespace(
+  DEFINE "LIBFATBAT_HAVE_PROVIDER_${PROVIDER_UPPER}" NAMESPACE libfatbat
+)
 
 # Special handling for deprecated or extra cases
 if(FATBAT_PROVIDER STREQUAL "sockets")

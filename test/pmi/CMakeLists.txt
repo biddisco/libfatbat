@@ -9,8 +9,12 @@ if(PMIx_FOUND)
 endif()
 
 if(TARGET Boost::program_options AND FATBAT_WITH_HWMALLOC)
-  list(APPEND PMI_TEST_SRCS send-recv-test rdma-read-test rdma-read-test-device)
+  list(APPEND PMI_TEST_SRCS send-recv-test rdma-read-test)
   list(APPEND PMI_BENCH_SRCS send-recv-benchmark rdma-read-benchmark)
+endif()
+
+if(FATBAT_WITH_GPU_SUPPORT)
+  list(APPEND PMI_TEST_SRCS rdma-read-test-device)
 endif()
 
 # ------------------------------------------------------------------------------
