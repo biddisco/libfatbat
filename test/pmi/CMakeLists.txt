@@ -11,6 +11,8 @@ endif()
 if(TARGET Boost::program_options AND FATBAT_WITH_HWMALLOC)
   list(APPEND PMI_TEST_SRCS send-recv-test rdma-read-test)
   list(APPEND PMI_BENCH_SRCS send-recv-benchmark rdma-read-benchmark)
+  set(send-recv-benchmark_PARAMS "-i" "2")
+  set(rdma-read-benchmark_PARAMS "-i" "2")
 endif()
 
 if(FATBAT_WITH_GPU_SUPPORT)
@@ -27,6 +29,7 @@ function(create_test_executable test COMPILE_ONLY)
     target_link_libraries(${test} PUBLIC spdlog::spdlog)
     target_link_libraries(${test} PUBLIC fmt::fmt)
   endif()
+
   target_link_libraries(${test} PUBLIC libfatbat ${PMI_LIBRARY_TARGET})
   if(TARGET Boost::program_options)
     target_link_libraries(${test} PUBLIC libfatbat Boost::headers Boost::program_options)
@@ -35,8 +38,14 @@ function(create_test_executable test COMPILE_ONLY)
   target_include_directories(${test} PUBLIC ${PROJECT_SOURCE_DIR})
 
   if(NOT COMPILE_ONLY)
-    add_test(NAME ${test} COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
-                                  ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${test}> ${MPIEXEC_POSTFLAGS}
+    if(DEFINED ${test}_PARAMS)
+      set(test_params "${${test}_PARAMS}")
+    else()
+      set(test_params "")
+    endif()
+    add_test(NAME ${test}
+             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                     $<TARGET_FILE:${test}> ${MPIEXEC_POSTFLAGS} ${test_params}
     )
   endif()
 endfunction()
@@ -48,6 +57,8 @@ foreach(test ${PMI_TEST_SRCS})
   create_test_executable("${test}" FALSE)
 endforeach()
 
+# will will add the benchmarks as tests but use small number of iterations to keep the test time
+# short.
 foreach(bench ${PMI_BENCH_SRCS})
-  create_test_executable("${bench}" TRUE)
+  create_test_executable("${bench}" FALSE)
 endforeach()
