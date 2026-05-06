@@ -6,6 +6,8 @@ set(PMI_BENCH_SRCS)
 
 if(PMIx_FOUND)
   list(APPEND PMI_TEST_SRCS kv-test-pmix pmi-boot-libfabric)
+elseif(PMI2_FOUND)
+  list(APPEND PMI_TEST_SRCS pmi-boot-libfabric)
 endif()
 
 if(TARGET Boost::program_options AND FATBAT_WITH_HWMALLOC)
