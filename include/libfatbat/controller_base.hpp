@@ -381,6 +381,7 @@ protected:
     endpoint_type endpoint_type_;
 
     locality here_;
+    std::size_t num_ranks_;
 
     // used during queue creation setup and during polling
     mutex_type controller_mutex_;
@@ -412,8 +413,8 @@ public:
     bool get_mrbind() { return mrbind; }
     // we do not know how many ranks there are, but some controllers might,
     // we provide a default implementation that returns -1
-    virtual std::int64_t rank() { return -1; }
-    virtual std::int64_t size() { return -1; }
+    virtual std::size_t rank() { return here_.fi_address(); }
+    virtual std::size_t size() { return num_ranks_; }
 
 public:
     libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> sends_posted_;
@@ -540,8 +541,8 @@ public:
     // --------------------------------------------------------------------
     // initialize the basic fabric/domain/name
     template <typename... Args>
-    void
-    initialize(std::string const& provider, bool rootnode, int size, size_t threads, Args&&... args)
+    void initialize(std::string const& provider, std::size_t rank, std::size_t size,
+        std::size_t threads, Args&&... args)
     {
       LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
@@ -558,7 +559,10 @@ public:
 
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "Threads", threads);
 
-      open_fabric(provider, threads, rootnode);
+      // for sanity checking address vector entries etc
+      num_ranks_ = size;
+
+      open_fabric(provider, threads, rank);
 
       // create an address vector that will be bound to (all) endpoints
       av_ = create_address_vector(fabric_info_, size, threads);
@@ -661,8 +665,8 @@ public:
 
       // once enabled we can get the address
       enable_endpoint(eps_->ep_rx_.get_ep(), "rx here");
-      here_ = get_endpoint_address(&eps_->ep_rx_.get_ep()->fid);
-      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "setting 'here'", here_.to_str());
+      here_ = get_endpoint_address(&eps_->ep_rx_.get_ep()->fid, rank);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} rank:{:04} {}, index {}", "setting 'here'", rank, here_.to_str(), rank);
 
       //        // if we are using scalable endpoints, then setup tx/rx contexts
       //        // we will us a single endpoint for all Tx/Rx contexts
@@ -742,7 +746,7 @@ public:
       //            eps_->ep_tx_ = endpoint_wrapper(ep_sx, nullptr, nullptr, "rx scalable");
 
       return static_cast<Derived*>(this)->initialize_derived(
-          provider, rootnode, size, threads, std::forward<Args>(args)...);
+          provider, rank, size, threads, std::forward<Args>(args)...);
     }
 
     // --------------------------------------------------------------------
@@ -802,7 +806,7 @@ public:
 
     // --------------------------------------------------------------------
     // initialize the basic fabric/domain/name
-    void open_fabric(std::string const& provider, int threads, bool rootnode)
+    void open_fabric(std::string const& provider, std::size_t threads, std::size_t rank)
     {
       LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
@@ -902,7 +906,7 @@ public:
       if (ret) throw libfatbat::fabric_error(ret, "Failed to get fabric info");
       fi_freeinfo(init_fabric_info_);
 
-      if (rootnode)
+      if (rank == 0)
       {
         [[maybe_unused]] std::array<char, 8192> buf;
         LIBFATBAT_TRACE(bctrl_log, "{:<20} \n {}", "Fabric info",
@@ -1270,7 +1274,7 @@ public:
     }
 
     // --------------------------------------------------------------------
-    locality get_endpoint_address(struct fid* id)
+    locality get_endpoint_address(struct fid* id, std::size_t rank)
     {
       LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
@@ -1282,7 +1286,7 @@ public:
         std::string err = std::to_string(addrlen) + "=" + std::to_string(locality_defs::array_size);
         libfatbat::fabric_error(ret, "fi_getname - error (address size ?) " + err);
       }
-      return locality(local_addr, av_, 0xffff'ffff);
+      return locality(local_addr, av_, rank);
     }
 
     // --------------------------------------------------------------------
@@ -1636,15 +1640,16 @@ public:
         int processed = 0;
         for (int i = 0; i < ret; ++i)
         {
-          ++recvs_complete_;
           LIBFATBAT_DEBUG(bctrl_log,
               "{:<20} {:02}, rxcq_flags {}, ({:03}), context {:12p}, length {:#06x}", "Completion",
               i, fi_tostr_r(buf.data(), buf.size(), &entry[i].flags, FI_TYPE_CQ_EVENT_FLAGS),
               entry[i].flags, (void*) (entry[i].op_context), entry[i].len);
           if ((entry[i].flags & (FI_TAGGED | FI_RECV)) != 0)
           {
-            LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:02}, rxcq tagged recv completion, context {:12p}",
-                "Completion", i, (void*) (entry[i].op_context));
+            ++recvs_complete_;
+            LIBFATBAT_DEBUG(bctrl_log,
+                "{:<20} {:02}, rxcq tagged recv completion, context {:12p}, rx count {:06}",
+                "Completion", i, (void*) (entry[i].op_context), (uint32_t) recvs_complete_);
 
             OperationContext* handler = reinterpret_cast<OperationContext*>(entry[i].op_context);
             processed += handler->handle_tagged_recv_completion(user_data);
@@ -1732,21 +1737,36 @@ public:
     {
       LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
 
-      LIBFATBAT_TRACE(
-          bctrl_log, "{:<20} {} {}", "AV insert_address", address.to_str(av), (void*) av);
-      fi_addr_t fi_addr = 0xffff'ffff;
-      int ret = fi_av_insert(av, address.fabric_data().data(), 1, &fi_addr, 0, nullptr);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} rank:{:04} {} {} index {} [data {}]", "AV insert_address",
+          here_.fi_address(), address.to_str(av), (void*) av, address.fi_address(),
+          address.fabric_data());
+
+      fi_addr_t index = address.fi_address();
+      if (index >= num_ranks_)
+      {
+        throw libfatbat::fabric_error(-1, "fi_av_insert index out of range");
+      }
+
+      int ret = fi_av_insert(av, address.fabric_data().data(), 1, &index, 0, nullptr);
       if (ret < 0) { throw libfatbat::fabric_error(ret, "fi_av_insert"); }
       else if (ret == 0)
       {
-        LIBFATBAT_ERROR(
-            bctrl_log, "fi_av_insert called with existing address {}", address.to_str(av));
-        libfatbat::fabric_error(ret, "fi_av_insert did not return 1");
+        LIBFATBAT_ERROR(bctrl_log, "rank:{:04} fi_av_insert called with existing address {}",
+            here_.fi_address(), address.to_str(av));
+        libfatbat::fabric_error(ret, "fi_av_insert failed");
       }
+
       // address was generated correctly, now update the locality with the fi_addr
-      locality new_locality(address, fi_addr, av);
-      LIBFATBAT_TRACE(
-          bctrl_log, "{:<20} {:04} {}", "AV add rank", fi_addr, new_locality.to_str(av));
+      locality new_locality(address, index, av);
+      if (address.fi_address() != new_locality.fi_address())
+      {
+        LIBFATBAT_ERROR(bctrl_log, "rank:{:04} fi_av_insert returned index {} != fi_address {}",
+            here_.fi_address(), new_locality.fi_address(), address.fi_address());
+        throw libfatbat::fabric_error(-1, "fi_av_insert index returned != fi_addr_t");
+      }
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} rank:{:04} in {:04} out {:04} {}", "AV add rank",
+          here_.fi_address(), address.fi_address(), new_locality.fi_address(),
+          new_locality.to_str(av));
       return new_locality;
     }
   };

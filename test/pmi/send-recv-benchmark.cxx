@@ -77,7 +77,7 @@ int main(int argc, char** argv)
   // -------------------------------------------------
   // initialize PMI and libfatbat controller
   std::tie(rank, size) = pmi.init_PMI(attach_debugger);
-  controller.initialize(HAVE_LIBFATBAT_PROVIDER, rank == 0, size, nthreads);
+  controller.initialize(HAVE_LIBFATBAT_PROVIDER, rank, size, nthreads);
   pmi.boot_PMI(&controller);
 
   if (size != 2)

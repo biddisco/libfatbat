@@ -22,7 +22,8 @@ class test_controller : public libfatbat::controller_base<test_controller, opera
 {
   public:
   // --------------------------------------------------------------------
-  void initialize_derived(std::string const& provider, bool rootnode, int size, std::size_t threads)
+  void initialize_derived(
+      std::string const& provider, size_t rank, size_t size, std::size_t threads)
   {
   }
 
