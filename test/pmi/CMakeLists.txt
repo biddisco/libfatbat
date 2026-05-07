@@ -17,7 +17,7 @@ if(TARGET Boost::program_options AND FATBAT_WITH_HWMALLOC)
   set(rdma-read-benchmark_PARAMS "-i" "2")
 endif()
 
-if(FATBAT_WITH_GPU_SUPPORT)
+if(FATBAT_WITH_GPU_SUPPORT AND FATBAT_WITH_HWMALLOC)
   list(APPEND PMI_TEST_SRCS rdma-read-test-device)
 endif()
 

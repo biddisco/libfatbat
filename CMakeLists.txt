@@ -79,9 +79,7 @@ set_property(
 # ---------------------------------------------------------------------
 option(FATBAT_WITH_COUNTERS "Enable internal counters (default: OFF)" ON)
 option(FATBAT_WITH_HWMALLOC "Enable hwmalloc pinned memory heaps (default: OFF)" OFF)
-cmake_dependent_option(
-  FATBAT_WITH_GPU_SUPPORT "Enable device support (default: OFF)" OFF "FATBAT_WITH_HWMALLOC" OFF
-)
+option(FATBAT_WITH_GPU_SUPPORT "Enable device support (default: OFF)" OFF)
 
 # ---------------------------------------------------------------------
 # Libfabric

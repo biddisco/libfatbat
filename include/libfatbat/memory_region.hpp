@@ -21,14 +21,6 @@
 #include "libfatbat/fabric_error.hpp"
 #include "libfatbat/logging.hpp"
 
-#ifdef LIBFATBAT_HAVE_HWMALLOC
-# include <hwmalloc/config.hpp>
-# ifdef LIBFATBAT_HAVE_GPU_SUPPORT
-#  include <hwmalloc/device.hpp>
-# endif
-# include <hwmalloc/register.hpp>
-#endif
-
 // ------------------------------------------------------------------
 #if (FI_MAJOR_VERSION < 2)
 static_assert(false, "libfatbat requires libfabric version 2.0 or higher");

@@ -17,12 +17,6 @@
 #include "libfatbat/logging.hpp"
 #include "libfatbat/memory_region.hpp"
 
-#ifdef LIBFATBAT_HAVE_HWMALLOC
-# include <hwmalloc/config.hpp>
-# include <hwmalloc/device.hpp>
-# include <hwmalloc/register.hpp>
-#endif
-
 // ------------------------------------------------------------------
 #if (FI_MAJOR_VERSION < 2)
 static_assert(false, "libfatbat requires libfabric version 2.0 or higher");
@@ -187,7 +181,7 @@ namespace libfatbat {
     friend std::ostream& operator<<(std::ostream& os, memory_segment const& region)
     {
       (void) region;
-#ifdef LIBFATBAT_GING_ENABLED
+#ifdef LIBFATBAT_LOGGING_ENABLED
       os << *static_cast<memory_region const*>(&region)
          << fmt::format("base_addr {}", (void*) (region.base_addr_));
 #endif
