@@ -755,6 +755,8 @@ public:
       [[maybe_unused]] char buf[1024];
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:016x} : {}", "caps available", available_flags,
           fi_tostr_r(buf, 1024, &available_flags, FI_TYPE_CAPS));
+
+      // get the caps we require from the derived class
       uint64_t required_flags = static_cast<Derived const*>(this)->caps_flags(available_flags);
       //
       uint64_t final_flags = required_flags;
@@ -782,23 +784,7 @@ public:
     // --------------------------------------------------------------------
     constexpr std::int64_t memory_registration_mode_flags()
     {
-#if defined(LIBFATBAT_HAVE_PROVIDER_LNX)
-      return FI_MR_HMEM;
-#endif
-      std::int64_t base_flags = FI_MR_ALLOCATED;    // | FI_MR_VIRT_ADDR | FI_MR_PROV_KEY;
-#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
-      base_flags = base_flags | FI_MR_HMEM;
-#endif
-      base_flags = base_flags | FI_MR_LOCAL;
-
-#if defined(LIBFATBAT_HAVE_PROVIDER_CXI)
-      return base_flags | FI_MR_ENDPOINT;
-
-#elif defined(LIBFATBAT_HAVE_PROVIDER_EFA)
-      return base_flags | FI_MR_MMU_NOTIFY | FI_MR_ENDPOINT;
-#else
-      return base_flags;
-#endif
+      return static_cast<Derived*>(this)->memory_registration_mode_flags();
     }
 
     // --------------------------------------------------------------------
@@ -1719,11 +1705,11 @@ public:
       if (info->domain_attr->av_type != FI_AV_UNSPEC) { av_attr.type = info->domain_attr->av_type; }
       else
       {
-        LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "map FI_AV_TABLE");
+        LIBFATBAT_DEBUG(bctrl_log, "{:<20} size {}", "FI_AV_TABLE", av_attr.count);
         av_attr.type = FI_AV_TABLE;
       }
 
-      LIBFATBAT_DEBUG(bctrl_log, "{:<20}", "AV Create");
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} size {}", "AV Create", av_attr.count);
       int ret = fi_av_open(fabric_domain_, &av_attr, &av, nullptr);
       if (ret) throw libfatbat::fabric_error(ret, "fi_av_open");
       return av;

@@ -116,6 +116,7 @@ namespace libfatbat {
       }
       return *this;
     }
+
     // --------------------------------------------------------------------
     // construct a memory region object by registering an existing address buffer
     // we do not cache local/remote keys here because memory segments are only
@@ -145,17 +146,11 @@ namespace libfatbat {
       {
         ret = fi_mr_bind(region_, (struct fid*) ep, 0);
         if (ret) { throw libfatbat::fabric_error(int(ret), "fi_mr_bind"); }
-        else
-        {
-          LIBFATBAT_TRACE(memrgn_log, "Bound region {}", (void*) this);
-        }
+        else { LIBFATBAT_TRACE(memrgn_log, "Bound region {}", (void*) this); }
 
         ret = fi_mr_enable(region_);
         if (ret) { throw libfatbat::fabric_error(int(ret), "fi_mr_enable"); }
-        else
-        {
-          LIBFATBAT_TRACE(memrgn_log, "Enabled region {}", (void*) this);
-        }
+        else { LIBFATBAT_TRACE(memrgn_log, "Enabled region {}", (void*) this); }
       }
     }
 

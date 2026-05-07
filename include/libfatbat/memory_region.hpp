@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <iostream>
 #include <unistd.h>
 #include <utility>
@@ -30,6 +31,12 @@ static_assert(false, "libfatbat requires libfabric version 2.0 or higher");
 namespace libfatbat {
 
   MAKE_LOGGER(memrgn_log, "Region")
+
+  enum class mem_Iface {
+    System,
+    Cuda,
+    Rocr
+  };
 
   // --------------------------------------------------------------------
   // region provider : just an abstraction around actual calls to libfabric
@@ -108,6 +115,13 @@ namespace libfatbat {
   };
 
   // --------------------------------------------------------------------
+  struct region_info {
+    uint64_t addr = 0;
+    uint64_t rkey = 0;
+    uint64_t size = 0;
+  };
+
+  // --------------------------------------------------------------------
   // This is a handle to a small chunk of memory that has been registered
   // as part of a much larger allocation (a memory_segment)
   struct memory_region
@@ -131,9 +145,19 @@ namespace libfatbat {
       LIBFATBAT_SCOPE(memrgn_log, "{:<20} {} {:#10x} {:05}", __func__, (void*) addr, size, -1);
     }
 
+    region_info get_info() const
+    {
+      region_info info;
+      info.addr = get_addr();
+      info.rkey = get_remote_key();
+      info.size = get_size();
+      return info;
+    }
+    
     // --------------------------------------------------------------------
     // Return the address of this memory region block.
     inline unsigned char* get_address(void) const { return address_; }
+    inline std::uintptr_t get_addr(void) const { return reinterpret_cast<std::uintptr_t>(address_); }
 
     // --------------------------------------------------------------------
     // Get the local descriptor of the memory region.
@@ -159,6 +183,10 @@ namespace libfatbat {
     // --------------------------------------------------------------------
     // Deregister (unpin) memory region: returns 0 when successful, -1 otherwise
     inline int deregister(void) const;
+
+    // --------------------------------------------------------------------
+    // register the memory
+    inline void register_memory(provider_domain* pd, bool bind_mr, void* ep, int device_id);
 
     // --------------------------------------------------------------------
     friend std::ostream& operator<<(std::ostream& os, memory_region const& region)
@@ -193,6 +221,7 @@ protected:
 
 }    // namespace libfatbat
 
+
 #ifdef LIBFATBAT_LOGGING_ENABLED
 template <>
 struct fmt::formatter<libfatbat::memory_region> : fmt::ostream_formatter
@@ -200,25 +229,84 @@ struct fmt::formatter<libfatbat::memory_region> : fmt::ostream_formatter
 };
 #endif
 
-// --------------------------------------------------------------------
-// This is declared after the fmt::formatter specialization to avoid use
-// before instantiation since it calls the fmt::formatter specialization
-inline int libfatbat::memory_region::deregister(void) const
-{
-  if (region_)    //&& !get_user_region())
+
+namespace libfatbat {
+
+  // --------------------------------------------------------------------
+  // registering an address buffer
+  inline void memory_region::register_memory(provider_domain* pd, bool bind_mr, void* ep, int device_id)
   {
-    LIBFATBAT_TRACE(memrgn_log, "{:<20} {} ", "release", (void*) region_);
+    // an rma key counter to keep some providers (CXI) happy
+    static std::atomic<std::uint64_t> key = 0;
     //
-    if (region_provider::unregister_memory(region_))
+    int ret = region_provider::fi_register_memory(
+        pd, device_id, address_, size_, region_provider::access_flags(), 0, key++, &(region_));
+    if (!ret)
     {
-      LIBFATBAT_ERROR(memrgn_log, "{:<20} mr failed {} ", "fi_close", *this);
-      return -1;
+      LIBFATBAT_TRACE(memrgn_log, "{:<20} {} {}", "Registered region", device_id, (void*) this);
     }
-    else
+
+    if (bind_mr)
     {
-      LIBFATBAT_TRACE(memrgn_log, "{:<20} {}", "de-Registered", *this);
+      ret = fi_mr_bind(region_, (struct fid*) ep, 0);
+      if (ret) { throw fabric_error(int(ret), "fi_mr_bind"); }
+      else
+      {
+        LIBFATBAT_TRACE(memrgn_log, "Bound region {}", (void*) this);
+      }
+
+      ret = fi_mr_enable(region_);
+      if (ret) { throw fabric_error(int(ret), "fi_mr_enable"); }
+      else
+      {
+        LIBFATBAT_TRACE(memrgn_log, "Enabled region {}", (void*) this);
+      }
     }
-    region_ = nullptr;
   }
-  return 0;
+
+  // --------------------------------------------------------------------
+  // This is declared after the fmt::formatter specialization to avoid use
+  // before instantiation since it calls the fmt::formatter specialization
+  inline int memory_region::deregister(void) const
+  {
+    if (region_)    //&& !get_user_region())
+    {
+      LIBFATBAT_TRACE(memrgn_log, "{:<20} {} ", "release", (void*) region_);
+      //
+      if (region_provider::unregister_memory(region_))
+      {
+        LIBFATBAT_ERROR(memrgn_log, "{:<20} mr failed {} ", "fi_close", *this);
+        return -1;
+      }
+      else
+      {
+        LIBFATBAT_TRACE(memrgn_log, "{:<20} {}", "de-Registered", *this);
+      }
+      region_ = nullptr;
+    }
+    return 0;
+  }
+
+  // --------------------------------------------------------------------
+  // construct a memory region object by registering an existing address buffer
+  // --------------------------------------------------------------------
+  inline memory_region make_region(region_provider::provider_domain* pd, void const* buffer, uint64_t const length, bool bind_mr,
+      void* ep, int device_id)
+  {
+    memory_region mem_r{nullptr, reinterpret_cast<unsigned char*>((void*)buffer), length};
+    mem_r.register_memory(pd, bind_mr, ep, device_id);
+    return mem_r;
+  }
+
+  template <typename Controller>
+  inline memory_region make_region(Controller* controller, void* const ptr, std::size_t size, int device_id) {
+    if (controller->get_mrbind()) {
+      void* endpoint = controller->get_tx_endpoint().get_ep();
+      auto temp_region = make_region(controller->get_domain(), ptr, size, true, endpoint, device_id);
+      return temp_region;
+    } else {
+      auto temp_region = make_region(controller->get_domain(), ptr, size, false, nullptr, device_id);
+      return temp_region;
+    }
+  }
 }

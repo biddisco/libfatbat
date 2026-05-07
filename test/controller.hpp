@@ -38,6 +38,26 @@ class test_controller : public libfatbat::controller_base<test_controller, opera
   }
 
   // --------------------------------------------------------------------
+  constexpr std::int64_t memory_registration_mode_flags()
+  {
+    std::int64_t base_flags = FI_MR_ALLOCATED;    // | FI_MR_VIRT_ADDR | FI_MR_PROV_KEY;
+    base_flags = base_flags | FI_MR_LOCAL;
+
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    base_flags = base_flags | FI_MR_HMEM;
+#endif
+
+#if defined(LIBFATBAT_HAVE_PROVIDER_CXI)
+    return base_flags | FI_MR_ENDPOINT;
+
+#elif defined(LIBFATBAT_HAVE_PROVIDER_EFA)
+    return base_flags | FI_MR_MMU_NOTIFY | FI_MR_ENDPOINT;
+#else
+    return base_flags;
+#endif
+  }
+
+  // --------------------------------------------------------------------
   uint64_t caps_flags(uint64_t /*available_flags*/) const
   {
     uint64_t flags_required = FI_TAGGED;
