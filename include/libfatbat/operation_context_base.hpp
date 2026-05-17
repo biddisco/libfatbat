@@ -32,7 +32,7 @@ public:
     operation_context_base()
       : context_reserved_space()
     {
-      LIBFATBAT_SCOPE(opctx_log, "{} {}", (void*) (this), __func__);
+      // LIBFATBAT_SCOPE(opctx_log, "{} {}", (void*) (this), __func__);
     }
 
     // error

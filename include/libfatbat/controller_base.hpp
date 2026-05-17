@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <type_traits>
 #include <utility>
 //
 #include <cstddef>
@@ -209,7 +210,7 @@ static std::vector<std::pair<int, std::string>> gni_ints = {
 # define LIBFABRIC_FI_VERSION_MINOR 15
 #else
 # define LIBFABRIC_FI_VERSION_MAJOR 2
-# define LIBFABRIC_FI_VERSION_MINOR 2
+# define LIBFABRIC_FI_VERSION_MINOR 5
 #endif
 
 /** @brief a class to return the number of progressed callbacks */
@@ -360,6 +361,7 @@ public:
     typedef std::mutex mutex_type;
     typedef std::lock_guard<mutex_type> scoped_lock;
     typedef std::unique_lock<mutex_type> unique_lock;
+    using base_type = controller_base<Derived, OperationContext>;
 
 protected:
     // For threadlocal/scalable endpoints,
@@ -378,6 +380,10 @@ protected:
     struct fid_pep* ep_passive_;
 
     struct fid_av* av_;
+
+    // tx counter
+    fid_cntr* txCntr_;
+
     endpoint_type endpoint_type_;
 
     locality here_;
@@ -397,6 +403,7 @@ protected:
     inline static constexpr uint32_t max_completions_array_limit_ = 256;
     uint32_t max_completions_per_poll_;
     uint32_t msg_rendezvous_threshold_;
+    bool supportsWriteData_;
 
     static inline thread_local std::chrono::steady_clock::time_point send_poll_stamp;
     static inline thread_local std::chrono::steady_clock::time_point recv_poll_stamp;
@@ -444,6 +451,7 @@ public:
       , fabric_domain_(nullptr)
       , ep_passive_(nullptr)
       , av_(nullptr)
+      , txCntr_(nullptr)
       , tx_inject_size_(0)
       , tx_attr_size_(0)
       , rx_attr_size_(0)
@@ -491,6 +499,12 @@ public:
 
       // Cleanup endpoints
       eps_.reset(nullptr);
+
+      if (txCntr_)
+      {
+        fidclose(&txCntr_->fid, "tx counter");
+        txCntr_ = nullptr;
+      }
 
       // delete adddress vector
       fidclose(&av_->fid, "Address Vector");
@@ -580,6 +594,10 @@ public:
         // always bind a tx cq to the rx endpoint for single endpoint type
         auto tx_cq = bind_tx_queue_to_rx_endpoint(fabric_info_, eps_->ep_rx_.get_ep());
         eps_->ep_rx_.set_tx_cq(tx_cq);
+        if (needs_cq_counters())
+        {
+          bind_cq_counter_to_endpoint(eps_->ep_rx_.get_ep(), "rx/tx single");
+        }
       }
       else if (endpoint_type_ != endpoint_type::scalableTxRx)
       {
@@ -666,7 +684,8 @@ public:
       // once enabled we can get the address
       enable_endpoint(eps_->ep_rx_.get_ep(), "rx here");
       here_ = get_endpoint_address(&eps_->ep_rx_.get_ep()->fid, rank);
-      LIBFATBAT_DEBUG(bctrl_log, "{:<20} rank:{:04} {}, index {}", "setting 'here'", rank, here_.to_str(), rank);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} rank:{:04} {}, index {}", "setting 'here'", rank,
+          here_.to_str(), rank);
 
       //        // if we are using scalable endpoints, then setup tx/rx contexts
       //        // we will us a single endpoint for all Tx/Rx contexts
@@ -758,7 +777,8 @@ public:
 
       // get the caps we require from the derived class
       uint64_t required_flags = static_cast<Derived const*>(this)->caps_flags(available_flags);
-      //
+
+      // utility debugging output to show what caps we requested and which of those are unavailable
       uint64_t final_flags = required_flags;
       for (uint64_t bit = 0; bit < 64; ++bit)
       {
@@ -778,17 +798,75 @@ public:
     // --------------------------------------------------------------------
     constexpr fi_threading threadlevel_flags()
     {
-      return static_cast<Derived*>(this)->threadlevel_flags();
+      // if derived class does not re-implement this function
+      if constexpr (std::is_same_v<decltype(&Derived::threadlevel_flags),
+                        decltype(&base_type::threadlevel_flags)>)
+      {
+        return FI_THREAD_SAFE;
+      }
+      else
+      {
+        auto flags = static_cast<Derived*>(this)->threadlevel_flags();
+        LIBFATBAT_TRACE(
+            bctrl_log, "{:<20} derived flags {}", "threadlevel_flags", static_cast<int>(flags));
+        return flags;
+      }
     }
 
     // --------------------------------------------------------------------
     constexpr std::int64_t memory_registration_mode_flags()
     {
-      return static_cast<Derived*>(this)->memory_registration_mode_flags();
+      // if derived class does not re-implement this function
+      if constexpr (std::is_same_v<decltype(&Derived::memory_registration_mode_flags),
+                        decltype(&base_type::memory_registration_mode_flags)>)
+      {
+        std::int64_t base_flags =
+            FI_MR_LOCAL | FI_MR_ALLOCATED;    // | FI_MR_VIRT_ADDR | FI_MR_PROV_KEY;
+
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+        base_flags = base_flags | FI_MR_HMEM;
+#endif
+
+#if defined(LIBFATBAT_HAVE_PROVIDER_CXI)
+        return base_flags | FI_MR_ENDPOINT;
+
+#elif defined(LIBFATBAT_HAVE_PROVIDER_EFA)
+        return base_flags | FI_MR_MMU_NOTIFY | FI_MR_ENDPOINT;
+#else
+        return base_flags;
+#endif
+      }
+      else
+      {
+        auto value = static_cast<Derived*>(this)->memory_registration_mode_flags();
+        LIBFATBAT_TRACE(
+            bctrl_log, "{:<20} derived flags {}", "memory_registration_mode_flags", value);
+        return value;
+      }
+    }
+
+    // --------------------------------------------------------------------
+    constexpr bool needs_cq_counters()
+    {    //
+      // if derived class does not re-implement this function
+      if constexpr (std::is_same_v<decltype(&Derived::needs_cq_counters),
+                        decltype(&base_type::needs_cq_counters)>)
+      {
+        return false;
+      }
+      else
+      {
+        auto value = static_cast<Derived*>(this)->needs_cq_counters();
+        LIBFATBAT_TRACE(bctrl_log, "{:<20} derived flags {}", "needs_cq_counters", value);
+        return value;
+      }
     }
 
     // --------------------------------------------------------------------
     uint32_t rendezvous_threshold() { return msg_rendezvous_threshold_; }
+
+    // --------------------------------------------------------------------
+    bool supports_write_data() { return supportsWriteData_; }
 
     // --------------------------------------------------------------------
     // initialize the basic fabric/domain/name
@@ -911,7 +989,7 @@ public:
       mrbind = (fabric_hints_->domain_attr->mr_mode & FI_MR_ENDPOINT) != 0;
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_MR_ENDPOINT", mrbind);
 
-      /* Check if provider requires heterogeneous memory registration */
+      // Check if provider requires heterogeneous memory registration
       mrhmem = (fabric_hints_->domain_attr->mr_mode & FI_MR_HMEM) != 0;
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:15} {}", "Requires", "FI_MR_HMEM", mrhmem);
       [[maybe_unused]] bool mrhalloc = (fabric_hints_->domain_attr->mr_mode & FI_MR_ALLOCATED) != 0;
@@ -979,6 +1057,11 @@ public:
       }
 #endif
       tx_inject_size_ = fabric_info_->tx_attr->inject_size;
+      //
+      supportsWriteData_ = (fabric_info_->domain_attr->cq_data_size > 0) &&
+          ((fabric_info_->caps & FI_REMOTE_WRITE) != 0);
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} cq data size {}, supportsWriteData {}",
+          "supportsWriteData_", fabric_info_->domain_attr->cq_data_size, supportsWriteData_);
 
       // the number of preposted receives, and sender queue depth
       // is set by querying the tx/tx attr sizes
@@ -987,19 +1070,13 @@ public:
       // Print fabric info to a human-readable string if available
       if (display_fabric_info_ && fabric_info_)
       {
-        //         std::array<char, 8192> buf;
-        //         std::cout << "Libfabric fabric info:\n"
-        //                   << fi_tostr_r(static_cast<char*>(buf.data()), static_cast<size_t>(buf.size()),
-        //                          static_cast<void const*>(fabric_info_), FI_TYPE_INFO)
-        //                   << std::endl;
+        std::array<char, 8192> buf;
+        std::cout << "Libfabric fabric info:\n"
+                  << fi_tostr_r(static_cast<char*>(buf.data()), static_cast<size_t>(buf.size()),
+                         static_cast<void const*>(fabric_info_), FI_TYPE_INFO)
+                  << std::endl;
       }
       fi_freeinfo(fabric_hints_);
-    }
-
-    // --------------------------------------------------------------------
-    struct fi_info* set_src_dst_addresses(struct fi_info* info, bool tx)
-    {
-      return static_cast<Derived*>(this)->set_src_dst_addresses(info, tx);
     }
 
 #ifdef LIBFATBAT_HAVE_PROVIDER_GNI
@@ -1061,7 +1138,7 @@ public:
 
       // make sure src_addr/dst_addr are set accordingly
       // and we do not create two endpoint with the same src address
-      struct fi_info* hints = set_src_dst_addresses(info, tx);
+      struct fi_info* hints = fi_dupinfo(info);
 
       LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {}", "Got info mode", (info->mode & FI_NOTIFY_FLAGS_ONLY));
@@ -1249,6 +1326,26 @@ public:
       bind_queue_to_endpoint(ep, tx_cq, FI_TRANSMIT, "tx->rx bug fix");
       return tx_cq;
     }
+
+    // --------------------------------------------------------------------
+    void bind_cq_counter_to_endpoint(struct fid_ep* endpoint, [[maybe_unused]] char const* type)
+    {
+      LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
+
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {} {}", "Creating Counter for", (void*) (endpoint), type);
+      fi_cntr_attr cntrAttr = {};
+      cntrAttr.events = FI_CNTR_EVENTS_COMP;
+      cntrAttr.wait_obj = FI_WAIT_NONE;
+      int ret = fi_cntr_open(fabric_domain_, &cntrAttr, &txCntr_, nullptr);
+      if (ret) throw libfatbat::fabric_error(ret, "open txCtr");
+
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} {} {}", "Binding Counter to", (void*) (endpoint), type);
+      constexpr uint64_t kOfiBindFlagsCntr = FI_WRITE | FI_TRANSMIT;
+      ret = fi_ep_bind(get_tx_endpoint().get_ep(), &txCntr_->fid, kOfiBindFlagsCntr);
+      if (ret) throw libfatbat::fabric_error(ret, "bind txCntr");
+    }
+
+    uint64_t get_tx_counter_value() { return fi_cntr_read(txCntr_); }
 
     // --------------------------------------------------------------------
     void enable_endpoint(struct fid_ep* endpoint, [[maybe_unused]] char const* type)

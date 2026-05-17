@@ -72,13 +72,6 @@ class test_controller : public libfatbat::controller_base<test_controller, opera
   }
 
   // --------------------------------------------------------------------
-  // we do not need to perform any special actions on init (to init address)
-  struct fi_info* set_src_dst_addresses(struct fi_info* info, bool tx)
-  {    //
-    return fi_dupinfo(info);
-  }
-
-  // --------------------------------------------------------------------
   inline int poll_send_queue(fid_cq* tx_cq, void* user_data)
   {
     return static_cast<controller_base*>(this)->poll_send_queue_default(tx_cq, user_data);
