@@ -81,6 +81,11 @@ option(FATBAT_WITH_COUNTERS "Enable internal counters (default: OFF)" ON)
 option(FATBAT_WITH_HWMALLOC "Enable hwmalloc pinned memory heaps (default: OFF)" OFF)
 option(FATBAT_WITH_GPU_SUPPORT "Enable device support (default: OFF)" ON)
 
+set(FATBAT_GPU_BACKEND "CUDA" CACHE STRING
+                                    "GPU backend to use when GPU support is enabled (CUDA or HIP)"
+)
+set_property(CACHE FATBAT_GPU_BACKEND PROPERTY STRINGS CUDA HIP)
+
 # ---------------------------------------------------------------------
 # Libfabric
 # ---------------------------------------------------------------------
@@ -127,16 +132,26 @@ endif()
 # ------------------------------------------------------------------------------
 if(FATBAT_WITH_GPU_SUPPORT)
   libfatbat_add_config_define_namespace(DEFINE LIBFATBAT_HAVE_GPU_SUPPORT NAMESPACE libfatbat)
+  if(FATBAT_GPU_BACKEND STREQUAL "HIP")
+    libfatbat_add_config_define_namespace(DEFINE LIBFATBAT_HAVE_HIP NAMESPACE libfatbat)
+  else()
+    libfatbat_add_config_define_namespace(DEFINE LIBFATBAT_HAVE_CUDA NAMESPACE libfatbat)
+  endif()
 endif()
-set(HWMALLOC_ENABLE_DEVICE ${FATBAT_WITH_GPU_SUPPORT}
-    CACHE BOOL "Enable device support in hwmalloc" FORCE
-)
-mark_as_advanced(HWMALLOC_ENABLE_DEVICE)
 
 # ---------------------------------------------------------------------
 # hwmalloc dependency
 # ---------------------------------------------------------------------
 if(FATBAT_WITH_HWMALLOC)
+  set(HWMALLOC_ENABLE_DEVICE ${FATBAT_WITH_GPU_SUPPORT}
+      CACHE BOOL "Enable device support in hwmalloc" FORCE
+  )
+  string(TOLOWER "${FATBAT_GPU_BACKEND}" DEVICE_RUNTIME_)
+  set(HWMALLOC_DEVICE_RUNTIME ${DEVICE_RUNTIME_}
+      CACHE STRING "GPU backend to use for hwmalloc device support (CUDA or HIP)" FORCE
+  )
+  mark_as_advanced(HWMALLOC_ENABLE_DEVICE HWMALLOC_DEVICE_RUNTIME)
+
   find_package(hwmalloc QUIET)
   if(hwmalloc_FOUND OR TARGET hwmalloc)
     colour_message(STATUS ${Green} "✅ hwmalloc found ${hwmalloc_VERSION}")
@@ -203,8 +218,6 @@ target_include_directories(libfatbat INTERFACE "$<BUILD_INTERFACE:${PROJECT_BINA
 # ------------------------------------------------------------------------------
 if(HWMALLOC_ENABLE_DEVICE)
   # @TODO - add libfabric device options and select cuda/hip/other
-  # target_compile_definitions(libfatbat INTERFACE LIBFATBAT_ ENABLE_DEVICE)
-  target_compile_definitions(libfatbat INTERFACE LIBFATBAT_HAVE_CUDA)
   include(CheckLanguage)
   check_language(CUDA)
 

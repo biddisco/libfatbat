@@ -32,7 +32,8 @@ namespace libfatbat {
 
   MAKE_LOGGER(memrgn_log, "Region")
 
-  enum class mem_Iface {
+  enum class mem_Iface
+  {
     System,
     Cuda,
     Rocr
@@ -76,14 +77,14 @@ namespace libfatbat {
       if (device_id >= 0)
       {
 #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
-        LIBFATBAT_SCOPE(memrgn_log, "{:<20} {} {:#10x} {:05}", "device memory", buf, len, device_id);
+        LIBFATBAT_SCOPE(
+            memrgn_log, "{:<20} {} {:#10x} {:05}", "device memory", buf, len, device_id);
         attr.device.cuda = device_id;
-        int handle = device_id;    // hwmalloc::get_device_id();
-//        attr.device.cuda = handle;
-# if defined(LIBFATBAT_ENABLE_CUDA)
+        int handle = device_id;
+# if defined(LIBFATBAT_HAVE_CUDA)
         attr.iface = FI_HMEM_CUDA;
         LIBFATBAT_TRACE(memrgn_log, "CUDA set device id {} {}", device_id, handle);
-# elif defined(LIBFATBAT_ENABLE_HIP)
+# elif defined(LIBFATBAT_HAVE_HIP)
         attr.iface = FI_HMEM_ROCR;
         LIBFATBAT_TRACE(memrgn_log, "HIP set device id {} {}", device_id, handle);
 # endif
@@ -115,7 +116,8 @@ namespace libfatbat {
   };
 
   // --------------------------------------------------------------------
-  struct region_info {
+  struct region_info
+  {
     uint64_t addr = 0;
     uint64_t rkey = 0;
     uint64_t size = 0;
@@ -153,11 +155,14 @@ namespace libfatbat {
       info.size = get_size();
       return info;
     }
-    
+
     // --------------------------------------------------------------------
     // Return the address of this memory region block.
     inline unsigned char* get_address(void) const { return address_; }
-    inline std::uintptr_t get_addr(void) const { return reinterpret_cast<std::uintptr_t>(address_); }
+    inline std::uintptr_t get_addr(void) const
+    {
+      return reinterpret_cast<std::uintptr_t>(address_);
+    }
 
     // --------------------------------------------------------------------
     // Get the local descriptor of the memory region.
@@ -221,7 +226,6 @@ protected:
 
 }    // namespace libfatbat
 
-
 #ifdef LIBFATBAT_LOGGING_ENABLED
 template <>
 struct fmt::formatter<libfatbat::memory_region> : fmt::ostream_formatter
@@ -229,12 +233,12 @@ struct fmt::formatter<libfatbat::memory_region> : fmt::ostream_formatter
 };
 #endif
 
-
 namespace libfatbat {
 
   // --------------------------------------------------------------------
   // registering an address buffer
-  inline void memory_region::register_memory(provider_domain* pd, bool bind_mr, void* ep, int device_id)
+  inline void memory_region::register_memory(
+      provider_domain* pd, bool bind_mr, void* ep, int device_id)
   {
     // an rma key counter to keep some providers (CXI) happy
     static std::atomic<std::uint64_t> key = 0;
@@ -290,23 +294,30 @@ namespace libfatbat {
   // --------------------------------------------------------------------
   // construct a memory region object by registering an existing address buffer
   // --------------------------------------------------------------------
-  inline memory_region make_region(region_provider::provider_domain* pd, void const* buffer, uint64_t const length, bool bind_mr,
-      void* ep, int device_id)
+  inline memory_region make_region(region_provider::provider_domain* pd, void const* buffer,
+      uint64_t const length, bool bind_mr, void* ep, int device_id)
   {
-    memory_region mem_r{nullptr, reinterpret_cast<unsigned char*>((void*)buffer), length};
+    memory_region mem_r{nullptr, reinterpret_cast<unsigned char*>((void*) buffer), length};
     mem_r.register_memory(pd, bind_mr, ep, device_id);
     return mem_r;
   }
 
   template <typename Controller>
-  inline memory_region make_region(Controller* controller, void* const ptr, std::size_t size, int device_id) {
-    if (controller->get_mrbind()) {
+  inline memory_region
+  make_region(Controller* controller, void* const ptr, std::size_t size, int device_id)
+  {
+    if (controller->get_mrbind())
+    {
       void* endpoint = controller->get_tx_endpoint().get_ep();
-      auto temp_region = make_region(controller->get_domain(), ptr, size, true, endpoint, device_id);
+      auto temp_region =
+          make_region(controller->get_domain(), ptr, size, true, endpoint, device_id);
       return temp_region;
-    } else {
-      auto temp_region = make_region(controller->get_domain(), ptr, size, false, nullptr, device_id);
+    }
+    else
+    {
+      auto temp_region =
+          make_region(controller->get_domain(), ptr, size, false, nullptr, device_id);
       return temp_region;
     }
   }
-}
+}    // namespace libfatbat
