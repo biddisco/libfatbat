@@ -820,8 +820,7 @@ public:
       if constexpr (std::is_same_v<decltype(&Derived::memory_registration_mode_flags),
                         decltype(&base_type::memory_registration_mode_flags)>)
       {
-        std::int64_t base_flags =
-            FI_MR_LOCAL | FI_MR_ALLOCATED;    // | FI_MR_VIRT_ADDR | FI_MR_PROV_KEY;
+        std::int64_t base_flags = FI_MR_ALLOCATED;
 
 #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
         base_flags = base_flags | FI_MR_HMEM;
@@ -838,10 +837,11 @@ public:
       }
       else
       {
-        auto value = static_cast<Derived*>(this)->memory_registration_mode_flags();
-        LIBFATBAT_TRACE(
-            bctrl_log, "{:<20} derived flags {}", "memory_registration_mode_flags", value);
-        return value;
+        [[maybe_unused]] char buf[1024];
+        auto flags = static_cast<Derived*>(this)->memory_registration_mode_flags();
+        LIBFATBAT_TRACE(bctrl_log, "{:<20} derived flags {}", "MR mode_flags",
+            fi_tostr_r(buf, 1024, &flags, FI_TYPE_MR_MODE));
+        return flags;
       }
     }
 
@@ -867,6 +867,25 @@ public:
 
     // --------------------------------------------------------------------
     bool supports_write_data() { return supportsWriteData_; }
+
+    // --------------------------------------------------------------------
+    // If FI_MR_VIRT_ADDR is not negotiated, providers expect MR-relative offsets for remote RMA addresses.
+    inline bool use_relative_remote_addr() const
+    {
+      if (this->fabric_info_ == nullptr || this->fabric_info_->domain_attr == nullptr)
+      {
+        return false;
+      }
+      return (this->fabric_info_->domain_attr->mr_mode & FI_MR_VIRT_ADDR) == 0;
+    }
+
+    // --------------------------------------------------------------------
+    // Whether negotiated provider capabilities include heterogeneous memory.
+    inline bool supports_hmem() const
+    {
+      if (this->fabric_info_ == nullptr) { return false; }
+      return (this->fabric_info_->caps & FI_HMEM) != 0;
+    }
 
     // --------------------------------------------------------------------
     // initialize the basic fabric/domain/name
