@@ -919,13 +919,27 @@ public:
             fi_tostr_r(buf.data(), buf.size(), init_fabric_info_, FI_TYPE_INFO));
       }
 
-      // set capabilities we want to request
-      uint64_t all_caps =
-          caps_flags(init_fabric_info_->rx_attr->caps | init_fabric_info_->tx_attr->caps);
+      // set capabilities we want to request.
+      // Use all candidates from fi_getinfo, not only the first one, otherwise
+      // we can accidentally lock onto a weaker variant (e.g. non-HMEM SHM).
+      uint64_t available_caps = 0;
+      for (auto* info = init_fabric_info_; info != nullptr; info = info->next)
+      {
+        available_caps |= info->caps;
+        if (info->tx_attr) { available_caps |= info->tx_attr->caps; }
+        if (info->rx_attr) { available_caps |= info->rx_attr->caps; }
+      }
 
-      // fabric_hints_->caps = all_caps;
-      fabric_hints_->tx_attr->caps = init_fabric_info_->tx_attr->caps & all_caps;
-      fabric_hints_->rx_attr->caps = init_fabric_info_->rx_attr->caps & all_caps;
+      uint64_t all_caps = caps_flags(available_caps);
+
+      // Require negotiated caps at fi_getinfo time so providers without required
+      // capabilities are filtered out of the returned list.
+      fabric_hints_->caps = all_caps;
+      // Do not force tx/rx cap masks to equal all_caps: some capabilities are
+      // endpoint-global and not valid in both tx_attr and rx_attr simultaneously.
+      // Over-constraining these fields can make fi_getinfo return -FI_ENODATA.
+      fabric_hints_->tx_attr->caps = 0;
+      fabric_hints_->rx_attr->caps = 0;
 
       if ((init_fabric_info_->mode & FI_CONTEXT) == 0)
       {
