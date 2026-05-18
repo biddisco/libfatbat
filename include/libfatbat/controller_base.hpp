@@ -882,10 +882,7 @@ public:
       {
         fabric_hints_->fabric_attr->prov_name = strdup(std::string(provider + ";ofi_rxm").c_str());
       }
-      else
-      {
-        fabric_hints_->fabric_attr->prov_name = strdup(provider.c_str());
-      }
+      else { fabric_hints_->fabric_attr->prov_name = strdup(provider.c_str()); }
       LIBFATBAT_DEBUG(
           bctrl_log, "{:<20} {}", "fabric provider", fabric_hints_->fabric_attr->prov_name);
 
@@ -1190,10 +1187,7 @@ public:
       // Check the optimal number of TX/RX contexts supported by the provider
       size_t context_count = 0;
       if (tx) { context_count = std::min(new_hints->domain_attr->tx_ctx_cnt, threads); }
-      else
-      {
-        context_count = std::min(new_hints->domain_attr->rx_ctx_cnt, threads);
-      }
+      else { context_count = std::min(new_hints->domain_attr->rx_ctx_cnt, threads); }
 
       LIBFATBAT_TRACE(bctrl_log,
           "{:<20} Tx {}, Threads {}, tx_ctx_cnt {}, rx_ctx_cnt {}, context_count {}",
@@ -1515,8 +1509,7 @@ public:
     {
       progress_status p{0, 0};
       bool retry = false;
-      do
-      {
+      do {
         // sends
         uint32_t nsend =
             static_cast<Derived*>(this)->poll_send_queue(get_tx_endpoint().get_tx_cq(), user_data);
@@ -1555,7 +1548,7 @@ public:
       send_poll_stamp = now;
 #endif
       int ret;
-      fi_cq_msg_entry entry[max_completions_array_limit_];
+      fi_cq_tagged_entry entry[max_completions_array_limit_];
       assert(max_completions_per_poll_ <= max_completions_array_limit_);
       {
         auto lock = try_tx_lock();
@@ -1679,7 +1672,7 @@ public:
       recv_poll_stamp = now;
 #endif
       int ret;
-      fi_cq_msg_entry entry[max_completions_array_limit_];
+      fi_cq_tagged_entry entry[max_completions_array_limit_];
       assert(max_completions_per_poll_ <= max_completions_array_limit_);
       {
         auto lock = get_rx_lock();
@@ -1780,7 +1773,7 @@ public:
 
       struct fid_cq* cq;
       fi_cq_attr cq_attr = {};
-      cq_attr.format = FI_CQ_FORMAT_MSG;
+      cq_attr.format = FI_CQ_FORMAT_TAGGED;    // FI_CQ_FORMAT_DATA; // FI_CQ_FORMAT_MSG;
       cq_attr.wait_obj = FI_WAIT_NONE;
       cq_attr.wait_cond = FI_CQ_COND_NONE;
       cq_attr.size = size;
