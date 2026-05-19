@@ -120,6 +120,11 @@ if(NOT "${FATBAT_LOG_LEVEL_UPPERCASE}" MATCHES "OFF")
   endif()
 endif()
 
+# ---------------------------------------------------------------------
+# libfatbat itself is currently header only interface library
+# ---------------------------------------------------------------------
+add_library(libfatbat INTERFACE)
+
 # ------------------------------------------------------------------------------
 # Shim to alias libnuma if found already using mscclpp
 # ------------------------------------------------------------------------------
@@ -136,6 +141,7 @@ if(FATBAT_WITH_GPU_SUPPORT)
     libfatbat_add_config_define_namespace(DEFINE LIBFATBAT_HAVE_HIP NAMESPACE libfatbat)
   else()
     libfatbat_add_config_define_namespace(DEFINE LIBFATBAT_HAVE_CUDA NAMESPACE libfatbat)
+    target_link_libraries(libfatbat INTERFACE CUDA::cudart)
   endif()
 endif()
 
@@ -185,9 +191,8 @@ if(FATBAT_WITH_COUNTERS)
 endif()
 
 # ---------------------------------------------------------------------
-# libfatbat itself is currently header only interface library
+# setup libfatbat target
 # ---------------------------------------------------------------------
-add_library(libfatbat INTERFACE)
 target_link_libraries(libfatbat INTERFACE Boost::headers)
 target_link_libraries(libfatbat INTERFACE $<$<BOOL:${FATBAT_WITH_HWMALLOC}>:HWMALLOC::hwmalloc>)
 target_link_libraries(libfatbat INTERFACE libfabric::libfabric)

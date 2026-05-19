@@ -21,6 +21,10 @@
 //
 #include "libfatbat/fabric_error.hpp"
 #include "libfatbat/logging.hpp"
+//
+#if defined(LIBFATBAT_HAVE_CUDA)
+# include <cuda.h>
+#endif
 
 // ------------------------------------------------------------------
 #if (FI_MAJOR_VERSION < 2)
@@ -38,6 +42,18 @@ namespace libfatbat {
     Cuda,
     Rocr
   };
+
+#if defined(LIBFATBAT_HAVE_CUDA)
+  inline int gpuIdFromAddress(void* ptr)
+  {
+    int deviceId;
+    auto res = cuPointerGetAttribute(
+        &deviceId, CU_POINTER_ATTRIBUTE_DEVICE_ORDINAL, reinterpret_cast<CUdeviceptr>(ptr));
+    if (res == CUDA_ERROR_INVALID_VALUE) { return -1; }
+    else if (res != CUDA_SUCCESS) { throw libfatbat::fabric_error(res, "cuPointerGetAttribute"); }
+    return deviceId;
+  }
+#endif
 
   // --------------------------------------------------------------------
   // region provider : just an abstraction around actual calls to libfabric
@@ -144,7 +160,7 @@ namespace libfatbat {
       , address_{addr}
       , size_{uint32_t(size)}
     {
-      LIBFATBAT_SCOPE(memrgn_log, "{:<20} {} {:#10x} {:05}", __func__, (void*) addr, size, -1);
+      // LIBFATBAT_SCOPE(memrgn_log, "{:<20} {} {:#10x} {:05}", __func__, (void*) addr, size, -1);
     }
 
     region_info get_info() const
@@ -254,17 +270,11 @@ namespace libfatbat {
     {
       ret = fi_mr_bind(region_, (struct fid*) ep, 0);
       if (ret) { throw fabric_error(int(ret), "fi_mr_bind"); }
-      else
-      {
-        LIBFATBAT_TRACE(memrgn_log, "Bound region {}", (void*) this);
-      }
+      else { LIBFATBAT_TRACE(memrgn_log, "Bound region {}", (void*) this); }
 
       ret = fi_mr_enable(region_);
       if (ret) { throw fabric_error(int(ret), "fi_mr_enable"); }
-      else
-      {
-        LIBFATBAT_TRACE(memrgn_log, "Enabled region {}", (void*) this);
-      }
+      else { LIBFATBAT_TRACE(memrgn_log, "Enabled region {}", (void*) this); }
     }
   }
 
@@ -282,10 +292,7 @@ namespace libfatbat {
         LIBFATBAT_ERROR(memrgn_log, "{:<20} mr failed {} ", "fi_close", *this);
         return -1;
       }
-      else
-      {
-        LIBFATBAT_TRACE(memrgn_log, "{:<20} {}", "de-Registered", *this);
-      }
+      else { LIBFATBAT_TRACE(memrgn_log, "{:<20} {}", "de-Registered", *this); }
       region_ = nullptr;
     }
     return 0;
