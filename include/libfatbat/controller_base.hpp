@@ -807,8 +807,8 @@ public:
       else
       {
         auto flags = static_cast<Derived*>(this)->threadlevel_flags();
-        LIBFATBAT_TRACE(
-            bctrl_log, "{:<20} derived flags {}", "threadlevel_flags", static_cast<int>(flags));
+        // LIBFATBAT_TRACE(
+        //     bctrl_log, "{:<20} derived flags {}", "threadlevel_flags", static_cast<int>(flags));
         return flags;
       }
     }
@@ -1658,6 +1658,14 @@ public:
                 "Completion", (void*) (entry[i].op_context));
             OperationContext* handler = reinterpret_cast<OperationContext*>(entry[i].op_context);
             processed += handler->handle_rma_read_completion();
+          }
+          else if ((entry[i].flags & (FI_WRITE | FI_RMA)) == (FI_WRITE | FI_RMA))
+          {
+            ++writes_complete_;
+            LIBFATBAT_DEBUG(bctrl_log, "{:<20} Received txcq WRITE completion, context {:p}",
+                "Completion", (void*) (entry[i].op_context));
+            OperationContext* handler = reinterpret_cast<OperationContext*>(entry[i].op_context);
+            if (handler) processed += handler->handle_rma_write_completion();
           }
           else
           {

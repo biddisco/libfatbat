@@ -232,6 +232,20 @@ struct communicator
   }
 
   // --------------------------------------------------------------------
+  void write_remote(region_type const& send_region, std::size_t size, fi_addr_t rem_rank_,
+      uint64_t remote_addr, uint64_t remote_key, operation_context* ctxt)
+  {
+    m_controller->writes_posted_++;
+    LIBFATBAT_DEBUG(comm_log,
+        "{:<20} {:02} {} context {:p} tx endpoint {:p} size {:#10x} rem_addr {:#018x} rem_key "
+        "{:#08x}",
+        "write_remote", rem_rank_, send_region, (void*) (ctxt), (void*) (m_tx_endpoint.get_ep()),
+        size, remote_addr, remote_key);
+    execute_fi_function(fi_write, "fi_write", m_tx_endpoint.get_ep(), send_region.get_address(),
+        size, send_region.get_local_key(), rem_rank_, remote_addr, remote_key, ctxt);
+  }
+
+  // --------------------------------------------------------------------
   operation_context* read(memory_context::heap_type::pointer const& ptr, std::size_t size,
       rank_type dst, void* remote_addr, uint64_t remote_key, request_callback_type&& cb)
   {
@@ -247,6 +261,25 @@ struct communicator
     auto request = make_operation_context(std::move(cb));
 
     read_remote(reg, size, fi_addr_t(dst), remote_addr, remote_key, request);
+    return request;
+  }
+
+  // --------------------------------------------------------------------
+  operation_context* write(memory_context::heap_type::pointer const& ptr, std::size_t size,
+      rank_type dst, uint64_t remote_addr, uint64_t remote_key, request_callback_type&& cb)
+  {
+    LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
+
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
+#else
+    auto const& reg = ptr.handle();
+#endif
+
+    if (cb) { cb = std::bind(std::move(cb), dst, 0); }
+    auto request = make_operation_context(std::move(cb));
+
+    write_remote(reg, size, fi_addr_t(dst), remote_addr, remote_key, request);
     return request;
   }
 

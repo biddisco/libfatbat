@@ -83,6 +83,12 @@ public:
     }
     int handle_rma_read_completion_impl() { return 0; }
 
+    int handle_rma_write_completion()
+    {
+      return static_cast<Derived*>(this)->handle_rma_write_completion_impl();
+    }
+    int handle_rma_write_completion_impl() { return 0; }
+
     // unknown sender = new connection (not needed when using pmi/mpi/other connection setup)
     template <typename Controller>
     int handle_new_connection(Controller* ctrl, uint64_t len)
