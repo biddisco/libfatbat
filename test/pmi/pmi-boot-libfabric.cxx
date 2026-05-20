@@ -45,6 +45,12 @@ int main(int argc, char** argv)
   pmi_helper pmi;
 
   std::tie(rank, size) = pmi.init_PMI(attach_debugger);
+  if (size != 2)
+  {
+    LIBFATBAT_ERROR(pmiboot_log, "{:<20} PMI initialization failed to set size 2 != {} correctly",
+        "PMIBoot", size);
+    return -1;
+  }
   controller.initialize(LIBFATBAT_HAVE_PROVIDER, rank, size, nthreads);
   pmi.boot_PMI(&controller);
   pmi.finalize_PMI();
