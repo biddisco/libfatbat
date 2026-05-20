@@ -284,6 +284,35 @@ struct communicator
   }
 
   // --------------------------------------------------------------------
+  void write_data_remote(region_type const& send_region, std::size_t size, fi_addr_t rem_rank_,
+      uint64_t remote_addr, uint64_t remote_key, uint64_t imm_data, operation_context* ctxt)
+  {
+    m_controller->writes_posted_++;
+    LIBFATBAT_DEBUG(comm_log,
+        "{:<20} {:02} {} context {:p} tx endpoint {:p} size {:#10x} rem_addr {:#018x} rem_key "
+        "{:#08x} imm_data {:#016x}",
+        "write_data_remote", rem_rank_, send_region, (void*) (ctxt),
+        (void*) (m_tx_endpoint.get_ep()), size, remote_addr, remote_key, imm_data);
+    execute_fi_function(fi_writedata, "fi_writedata", m_tx_endpoint.get_ep(),
+        send_region.get_address(), size, send_region.get_local_key(), imm_data, rem_rank_,
+        remote_addr, remote_key, ctxt);
+  }
+
+  // --------------------------------------------------------------------
+  operation_context* write_data(memory_context::heap_type::pointer const& ptr, std::size_t size,
+      rank_type dst, uint64_t remote_addr, uint64_t remote_key, uint64_t imm_data,
+      request_callback_type&& cb)
+  {
+    LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
+
+    auto const& reg = ptr.handle();
+    if (cb) { cb = std::bind(std::move(cb), dst, 0); }
+    auto request = make_operation_context(std::move(cb));
+    write_data_remote(reg, size, fi_addr_t(dst), remote_addr, remote_key, imm_data, request);
+    return request;
+  }
+
+  // --------------------------------------------------------------------
   operation_context* send(memory_context::heap_type::pointer const& ptr, std::size_t size,
       rank_type dst, tag_type tag, request_callback_type&& cb)
   {

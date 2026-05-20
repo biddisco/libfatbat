@@ -432,6 +432,7 @@ public:
     libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> writes_posted_;
     libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> reads_complete_;
     libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> writes_complete_;
+    libfatbat::simple_counter<uint32_t, PERFORMANCE_COUNTER_ENABLED> remote_cq_data_received_;
 
     void finvoke([[maybe_unused]] char const* msg, char const* err, int ret)
     {
@@ -465,6 +466,7 @@ public:
       , writes_posted_(0)
       , reads_complete_(0)
       , writes_complete_(0)
+      , remote_cq_data_received_(0)
     {
     }
 
@@ -480,10 +482,12 @@ public:
       // unsigned int delete_err_ = messages_handled_ - recv_deletes_;
 
       LIBFATBAT_DEBUG(bctrl_log,
-          "{:<20} rank {}: sends: {}/{}, recvs: {}/{}, reads: {}/{}, writes: {}/{},", "Shutdown",
-          rank(), (uint32_t) sends_complete_, (uint32_t) sends_posted_, (uint32_t) recvs_complete_,
-          (uint32_t) recvs_posted_, (uint32_t) reads_complete_, (uint32_t) reads_posted_,
-          (uint32_t) writes_complete_, (uint32_t) writes_posted_);
+          "{:<20} rank {}: sends: {}/{}, recvs: {}/{}, reads: {}/{}, writes: {}/{}, remote cq "
+          "data: {}",
+          "Shutdown", rank(), (uint32_t) sends_complete_, (uint32_t) sends_posted_,
+          (uint32_t) recvs_complete_, (uint32_t) recvs_posted_, (uint32_t) reads_complete_,
+          (uint32_t) reads_posted_, (uint32_t) writes_complete_, (uint32_t) writes_posted_,
+          (uint32_t) remote_cq_data_received_);
 
       tx_endpoints_.consume_all([](auto&& ep) { ep.cleanup(); });
       rx_endpoints_.consume_all([](auto&& ep) { ep.cleanup(); });
@@ -869,6 +873,16 @@ public:
     bool supports_write_data() { return supportsWriteData_; }
 
     // --------------------------------------------------------------------
+    // Called by poll_recv_queue_default when a remote fi_writedata CQ event arrives.
+    // Derived classes override handle_remote_cq_data_completion_impl to collect the value.
+    // note that an operation context is not used for fi_writedata rma event completions as there is no preposted context
+    inline void handle_remote_cq_data_completion(uint64_t data)
+    {
+      static_cast<Derived*>(this)->handle_remote_cq_data_completion_impl(data);
+    }
+    inline void handle_remote_cq_data_completion_impl([[maybe_unused]] uint64_t data) {}
+
+    // --------------------------------------------------------------------
     // If FI_MR_VIRT_ADDR is not negotiated, providers expect MR-relative offsets for remote RMA addresses.
     inline bool use_relative_remote_addr() const
     {
@@ -1088,10 +1102,21 @@ public:
 #endif
       tx_inject_size_ = fabric_info_->tx_attr->inject_size;
       //
-      supportsWriteData_ = (fabric_info_->domain_attr->cq_data_size > 0) &&
-          ((fabric_info_->caps & FI_REMOTE_WRITE) != 0);
-      LIBFATBAT_DEBUG(bctrl_log, "{:<20} cq data size {}, supportsWriteData {}",
-          "supportsWriteData_", fabric_info_->domain_attr->cq_data_size, supportsWriteData_);
+      bool const has_cq_data = (fabric_info_->domain_attr->cq_data_size > 0);
+      bool const has_remote_write = ((fabric_info_->caps & FI_REMOTE_WRITE) != 0);
+      bool const has_rma_event = ((fabric_info_->caps & FI_RMA_EVENT) != 0);
+      supportsWriteData_ = has_cq_data && has_remote_write && has_rma_event;
+
+      LIBFATBAT_DEBUG(bctrl_log, "{:<20} cq_data_size {} remote_write {} rma_event {} supports {}",
+          "supports WriteData", fabric_info_->domain_attr->cq_data_size, has_remote_write,
+          has_rma_event, supportsWriteData_);
+      if (!supportsWriteData_)
+      {
+        LIBFATBAT_WARN(bctrl_log,
+            "{:<20} writedata prerequisites missing (cq_data_size>0={}, FI_REMOTE_WRITE={}, "
+            "FI_RMA_EVENT={})",
+            "supports WriteData", has_cq_data, has_remote_write, has_rma_event);
+      }
 
       // the number of preposted receives, and sender queue depth
       // is set by querying the tx/tx attr sizes
@@ -1631,14 +1656,16 @@ public:
         for (int i = 0; i < ret; ++i)
         {
           LIBFATBAT_DEBUG(bctrl_log,
-              "{:<20} {:02}, txcq_flags {}, ({:03}), context {:p}, length {:#10x}", "Completion", i,
+              "{:<20} entry({:02}), txcq_flags {}, ({:03}), context {:p}, length {:#10x}",
+              "Completion", i,
               fi_tostr_r(buf.data(), buf.size(), &entry[i].flags, FI_TYPE_CQ_EVENT_FLAGS),
               entry[i].flags, (void*) (entry[i].op_context), entry[i].len);
           if ((entry[i].flags & (FI_TAGGED | FI_SEND | FI_MSG)) != 0)
           {
             ++sends_complete_;
-            LIBFATBAT_DEBUG(bctrl_log, "{:<20} {:02}, txcq tagged SEND completion, context {:p}",
-                "Completion", i, (void*) (entry[i].op_context));
+            LIBFATBAT_DEBUG(bctrl_log,
+                "{:<20} entry({:02}), txcq tagged SEND completion, context {:p}", "Completion", i,
+                (void*) (entry[i].op_context));
 
             OperationContext* handler = reinterpret_cast<OperationContext*>(entry[i].op_context);
             processed += handler->handle_tagged_send_completion(user_data);
@@ -1646,24 +1673,27 @@ public:
           else if (entry[i].flags == (FI_READ | FI_RMA))
           {
             ++reads_complete_;
-            LIBFATBAT_DEBUG(bctrl_log, "{:<20} Received txcq READ completion, context {:p}",
-                "Completion", (void*) (entry[i].op_context));
+            LIBFATBAT_DEBUG(bctrl_log,
+                "{:<20} entry({:02}), Received txcq READ completion, context {:p}", "Completion", i,
+                (void*) (entry[i].op_context));
             OperationContext* handler = reinterpret_cast<OperationContext*>(entry[i].op_context);
             processed += handler->handle_rma_read_completion();
           }
           else if (entry[i].flags == FI_RMA)
           {
             ++reads_complete_;
-            LIBFATBAT_DEBUG(bctrl_log, "{:<20} Received txcq RMA completion, context {:p}",
-                "Completion", (void*) (entry[i].op_context));
+            LIBFATBAT_DEBUG(bctrl_log,
+                "{:<20} entry({:02}), Received txcq RMA completion, context {:p}", "Completion", i,
+                (void*) (entry[i].op_context));
             OperationContext* handler = reinterpret_cast<OperationContext*>(entry[i].op_context);
             processed += handler->handle_rma_read_completion();
           }
           else if ((entry[i].flags & (FI_WRITE | FI_RMA)) == (FI_WRITE | FI_RMA))
           {
             ++writes_complete_;
-            LIBFATBAT_DEBUG(bctrl_log, "{:<20} Received txcq WRITE completion, context {:p}",
-                "Completion", (void*) (entry[i].op_context));
+            LIBFATBAT_DEBUG(bctrl_log,
+                "{:<20} entry({:02}), Received txcq WRITE completion, context {:p}", "Completion",
+                i, (void*) (entry[i].op_context));
             OperationContext* handler = reinterpret_cast<OperationContext*>(entry[i].op_context);
             if (handler) processed += handler->handle_rma_write_completion();
           }
@@ -1758,23 +1788,33 @@ public:
         for (int i = 0; i < ret; ++i)
         {
           LIBFATBAT_DEBUG(bctrl_log,
-              "{:<20} {:02}, rxcq_flags {}, ({:03}), context {:12p}, length {:#06x}", "Completion",
-              i, fi_tostr_r(buf.data(), buf.size(), &entry[i].flags, FI_TYPE_CQ_EVENT_FLAGS),
+              "{:<20} entry({:02}), rxcq_flags {}, ({:03}), context {:12p}, length {:#06x}",
+              "Completion", i,
+              fi_tostr_r(buf.data(), buf.size(), &entry[i].flags, FI_TYPE_CQ_EVENT_FLAGS),
               entry[i].flags, (void*) (entry[i].op_context), entry[i].len);
           if ((entry[i].flags & (FI_TAGGED | FI_RECV)) != 0)
           {
             ++recvs_complete_;
             LIBFATBAT_DEBUG(bctrl_log,
-                "{:<20} {:02}, rxcq tagged recv completion, context {:12p}, rx count {:06}",
+                "{:<20} entry({:02}), rxcq tagged recv completion, context {:12p}, rx count {:06}",
                 "Completion", i, (void*) (entry[i].op_context), (uint32_t) recvs_complete_);
 
             OperationContext* handler = reinterpret_cast<OperationContext*>(entry[i].op_context);
             processed += handler->handle_tagged_recv_completion(user_data);
           }
+          else if ((entry[i].flags & (FI_RMA | FI_REMOTE_WRITE | FI_REMOTE_CQ_DATA)) != 0)
+          {
+            ++remote_cq_data_received_;
+            LIBFATBAT_DEBUG(bctrl_log,
+                "{:<20} entry({:02}), received REMOTE_CQ_DATA flags {:#06x}, data {:#016x}",
+                "Completion", i, entry[i].flags, entry[i].data);
+            static_cast<Derived*>(this)->handle_remote_cq_data_completion(entry[i].data);
+          }
           else
           {
             LIBFATBAT_ERROR(bctrl_log,
-                "{:<20} {:02}, received an unknown rxcq completion, flags {:#06x}, context {:12p}",
+                "{:<20} entry({:02}), received an unknown rxcq completion, flags {:#06x}, context "
+                "{:12p}",
                 "Completion", i, entry[i].flags, (void*) (entry[i].op_context));
             std::terminate();
           }

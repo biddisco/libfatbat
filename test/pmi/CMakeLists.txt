@@ -11,7 +11,7 @@ elseif(PMI2_FOUND)
 endif()
 
 if(TARGET Boost::program_options AND FATBAT_WITH_HWMALLOC)
-  list(APPEND PMI_TEST_SRCS send-recv-test rdma-read-test rdma-write-test)
+  list(APPEND PMI_TEST_SRCS send-recv-test rdma-read-test rdma-write-test rdma-writedata-test)
   list(APPEND PMI_BENCH_SRCS send-recv-benchmark rdma-read-benchmark rdma-write-benchmark)
   set(send-recv-benchmark_PARAMS "-i" "2")
   set(rdma-read-benchmark_PARAMS "-i" "2")
