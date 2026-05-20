@@ -10,18 +10,19 @@ auto verify_buffer = [](void const* buffer, std::size_t message_size, rank_type 
                          std::uint8_t expected, char const* msg, rank_type remote_rank,
                          tag_type /*tag*/)    // NOLINT(readability-function-cognitive-complexity)
 {
-  LIBFATBAT_TRACE(testutil_log, "{:<20} {}", msg, libfatbat::log::mem_crc32(buffer, message_size));
-
   // verify the RMA/MSG buffer content: every byte must match the expected value
   auto* data = static_cast<uint8_t const*>(buffer);
   for (std::size_t i = 0; i < static_cast<std::size_t>(message_size); ++i)
   {
     if (data[i] != static_cast<uint8_t>(expected))
     {
+      LIBFATBAT_TRACE(
+          testutil_log, "{:<20} {}", msg, libfatbat::log::mem_crc32(buffer, message_size));
       LIBFATBAT_ERROR(testutil_log,
           "{:<20} rank {} Buffer validation failed: src {} index {} value {} expected {}", msg,
           this_rank, remote_rank, i, data[i], static_cast<uint8_t>(expected));
       throw std::runtime_error("Buffer validation failed");
     }
   }
+  LIBFATBAT_TRACE(testutil_log, "{:<20} buffer validation successful", msg);
 };

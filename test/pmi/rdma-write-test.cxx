@@ -105,8 +105,14 @@ int main(int argc, char** argv)
   std::vector<memory_context::heap_type::pointer> local_source_keys;
   std::vector<memory_context::heap_type::pointer> local_source_buffers;
 
-  // Registered footer send buffers for remote completion notification.
-  std::vector<memory_context::heap_type::pointer> semaphore_send_buffers;
+  // Semaphore structure for remote completion notification.
+  struct semaphore_info
+  {
+    memory_context::heap_type::pointer local_buffer;       // Registered local buffer for writing
+    memory_context::heap_type::pointer local_key_info;     // Key info for our semaphore buffer
+    memory_context::heap_type::pointer remote_key_info;    // Remote key/address info
+  };
+  std::vector<semaphore_info> semaphores(size);
 
   for (int i = 0; i < static_cast<int>(size); i++)
   {
@@ -120,7 +126,8 @@ int main(int argc, char** argv)
 
     auto source_buffer = heap.allocate(message_size, 0);
     std::fill((uint8_t*) source_buffer.get(), (uint8_t*) source_buffer.get() + message_size,
-        static_cast<uint8_t>(rank));
+        static_cast<uint8_t>(
+            rank + 17));    // Use a different pattern than the target buffer to help debugging
     local_source_buffers.push_back(source_buffer);
 
     auto source_key = heap.allocate(sizeof(rma_key_info), 0);
@@ -132,9 +139,18 @@ int main(int argc, char** argv)
     std::memcpy(source_key.get(), &info, sizeof(rma_key_info));
     local_source_keys.push_back(source_key);
 
-    // Allocate a registered send buffer for the semaphore write
-    auto sem_send_buf = heap.allocate(sizeof(int32_t), 0);
-    semaphore_send_buffers.push_back(sem_send_buf);
+    // Semaphore: allocate local buffer, key info buffer for local buffer, and space for remote key info
+    semaphores[i].local_buffer = heap.allocate(sizeof(int32_t), 0);
+    semaphores[i].local_key_info = heap.allocate(sizeof(rma_key_info), 0);
+    semaphores[i].remote_key_info = heap.allocate(sizeof(rma_key_info), 0);
+
+    // Fill key info for our semaphore buffer
+    rma_key_info sem_info{
+        .address = semaphores[i].local_buffer.handle().get_address(),
+        .remote_key = (uint64_t) semaphores[i].local_buffer.handle().get_remote_key(),
+        .length = sizeof(int32_t),
+    };
+    std::memcpy(semaphores[i].local_key_info.get(), &sem_info, sizeof(rma_key_info));
   }
 
   LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {}", "initialized", rank);
@@ -145,6 +161,10 @@ int main(int argc, char** argv)
 
     comm.recv(rma_write_keys[r], sizeof(rma_key_info), r, r, nullptr);
     comm.send(local_source_keys[r], sizeof(rma_key_info), r, rank, nullptr);
+
+    // Semaphore: exchange key info for semaphore buffers
+    comm.recv(semaphores[r].remote_key_info, sizeof(rma_key_info), r, 1000 + r, nullptr);
+    comm.send(semaphores[r].local_key_info, sizeof(rma_key_info), r, 1000 + rank, nullptr);
   }
 
   wait_for_msg_completions(controller);
@@ -189,13 +209,14 @@ int main(int argc, char** argv)
     for (int r = 0; r < static_cast<int>(size); ++r)
     {
       if (rank == static_cast<size_t>(r)) continue;
-      auto* remote_key_info = static_cast<rma_key_info*>(rma_write_keys[r].get());
-      uint64_t remote_addr = static_cast<uint64_t>(message_size);
-      *(int32_t*) semaphore_send_buffers[r].get() = 1;
-      comm.write(semaphore_send_buffers[r], sizeof(int32_t), r, remote_addr,
-          remote_key_info->remote_key, nullptr);
-      LIBFATBAT_INFO(
-          rdmawritetest_log, "{:<20} rank {} -> rank {} footer write", "footer write", rank, r);
+      // Use the semaphore's own remote key info and buffer
+      auto* sem_remote_key_info = static_cast<rma_key_info*>(semaphores[r].remote_key_info.get());
+      uint64_t sem_remote_addr = 0;    // Always offset 0 in the semaphore buffer
+      *(int32_t*) semaphores[r].local_buffer.get() = 1;
+      comm.write(semaphores[r].local_buffer, sizeof(int32_t), r, sem_remote_addr,
+          sem_remote_key_info->remote_key, nullptr);
+      LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} -> rank {} semaphore write",
+          "semaphore write", rank, r);
     }
 
     // Wait for the semaphore writes to complete locally after they have been accepted.
@@ -203,20 +224,19 @@ int main(int argc, char** argv)
     wait_for_write_completions(controller, write_target);
     LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} iteration {}", "writes complete", rank, it);
 
-    // Wait for all remote peers to set the footer slot in our local target buffers.
+    // Wait for all remote peers to set our local semaphore buffer.
     for (int r = 0; r < static_cast<int>(size); ++r)
     {
       if (rank == static_cast<size_t>(r)) continue;
-      auto* footer_ptr = reinterpret_cast<int32_t volatile*>(
-          static_cast<uint8_t*>(rma_target_buffers[r].get()) + message_size);
-      while (*footer_ptr != 1)
+      auto* sem_local_ptr = reinterpret_cast<int32_t volatile*>(semaphores[r].local_buffer.get());
+      while (*sem_local_ptr != 1)
       {
         comm.progress();
         std::this_thread::sleep_for(std::chrono::microseconds(10));
       }
-      *footer_ptr = 0;
-      LIBFATBAT_INFO(
-          rdmawritetest_log, "{:<20} rank {} saw remote footer from {}", "footer seen", rank, r);
+      *sem_local_ptr = 0;
+      LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} saw remote semaphore from {}",
+          "semaphore seen", rank, r);
     }
 
     // Collective barrier: ensures all ranks have at least TX-completed their writes.
@@ -226,8 +246,9 @@ int main(int argc, char** argv)
     for (int r = 0; r < static_cast<int>(size); ++r)
     {
       if (rank == static_cast<size_t>(r)) continue;
-      verify_buffer(rma_target_buffers[r].get(), message_size, rank, static_cast<uint8_t>(r),
-          "write completion", r, 0);
+      // Validate that our buffer contains the sender's value (r)
+      verify_buffer(rma_target_buffers[r].get(), message_size, rank, static_cast<uint8_t>(r + 17),
+          "write validation", r, 0);
     }
 
     LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} iteration {}", "verify complete", rank, it);
@@ -240,7 +261,12 @@ int main(int argc, char** argv)
   for (auto& buf : rma_target_buffers) { heap.free(buf); }
   for (auto& buf : local_source_keys) { heap.free(buf); }
   for (auto& buf : local_source_buffers) { heap.free(buf); }
-  for (auto& buf : semaphore_send_buffers) { heap.free(buf); }
+  for (auto& sem : semaphores)
+  {
+    heap.free(sem.local_buffer);
+    heap.free(sem.local_key_info);
+    heap.free(sem.remote_key_info);
+  }
 
   return 0;
 }
