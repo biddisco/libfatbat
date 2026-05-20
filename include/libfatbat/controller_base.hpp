@@ -1106,6 +1106,14 @@ public:
       bool const has_remote_write = ((fabric_info_->caps & FI_REMOTE_WRITE) != 0);
       bool const has_rma_event = ((fabric_info_->caps & FI_RMA_EVENT) != 0);
       supportsWriteData_ = has_cq_data && has_remote_write && has_rma_event;
+#if defined(LIBFATBAT_HAVE_PROVIDER_CXI)
+      if (!std::getenv("FI_CXI_ENABLE_WRITEDATA"))
+      {
+        supportsWriteData_ = false;
+        LIBFATBAT_ERROR(bctrl_log, "{:<20} {}", "fi_writedata",
+            "CXI provider usually requires FI_CXI_ENABLE_WRITEDATA env var to be set");
+      }
+#endif
 
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} cq_data_size {} remote_write {} rma_event {} supports {}",
           "supports WriteData", fabric_info_->domain_attr->cq_data_size, has_remote_write,
