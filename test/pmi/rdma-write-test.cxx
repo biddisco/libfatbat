@@ -28,33 +28,11 @@
 // ------------------------------------------------------------------
 MAKE_LOGGER(rdmawritetest_log, "RdmaWriteTest")
 
-namespace {
-
-  struct rma_key_info
-  {
-    void* address;
-    uint64_t remote_key;
-    uint64_t length;
-  };
-
-  void wait_for_msg_completions(test_controller& controller)
-  {
-    while ((uint32_t) controller.sends_complete_ < controller.sends_posted_ ||
-        (uint32_t) controller.recvs_complete_ < controller.recvs_posted_)
-    {
-      std::this_thread::sleep_for(std::chrono::microseconds(1));
-    }
-  }
-
-  void wait_for_write_completions(test_controller& controller, uint32_t target)
-  {
-    while ((uint32_t) controller.writes_complete_ < target)
-    {
-      std::this_thread::sleep_for(std::chrono::microseconds(1));
-    }
-  }
-
-}    // namespace
+// Using shared utilities from test_utils.hpp:
+// - rma_key_info struct
+// - wait_for_msg_completions()
+// - wait_for_write_completions()
+// - semaphore_info<> struct
 
 // ----------------------------------------------------------------------------
 
@@ -105,14 +83,9 @@ int main(int argc, char** argv)
   std::vector<memory_context::heap_type::pointer> local_source_keys;
   std::vector<memory_context::heap_type::pointer> local_source_buffers;
 
-  // Semaphore structure for remote completion notification.
-  struct semaphore_info
-  {
-    memory_context::heap_type::pointer local_buffer;       // Registered local buffer for writing
-    memory_context::heap_type::pointer local_key_info;     // Key info for our semaphore buffer
-    memory_context::heap_type::pointer remote_key_info;    // Remote key/address info
-  };
-  std::vector<semaphore_info> semaphores(size);
+  // Semaphore structure for remote completion notification
+  using semaphore_type = semaphore_info<memory_context::heap_type>;
+  std::vector<semaphore_type> semaphores(size);
 
   for (int i = 0; i < static_cast<int>(size); i++)
   {

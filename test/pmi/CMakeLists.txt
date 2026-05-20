@@ -12,9 +12,10 @@ endif()
 
 if(TARGET Boost::program_options AND FATBAT_WITH_HWMALLOC)
   list(APPEND PMI_TEST_SRCS send-recv-test rdma-read-test rdma-write-test)
-  list(APPEND PMI_BENCH_SRCS send-recv-benchmark rdma-read-benchmark)
+  list(APPEND PMI_BENCH_SRCS send-recv-benchmark rdma-read-benchmark rdma-write-benchmark)
   set(send-recv-benchmark_PARAMS "-i" "2")
   set(rdma-read-benchmark_PARAMS "-i" "2")
+  set(rdma-write-benchmark_PARAMS "-i" "2")
 endif()
 
 if(FATBAT_WITH_GPU_SUPPORT AND FATBAT_WITH_HWMALLOC)
