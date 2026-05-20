@@ -802,7 +802,7 @@ public:
     // --------------------------------------------------------------------
     constexpr fi_threading threadlevel_flags()
     {
-      // if derived class does not re-implement this function
+      // if derived class does NOT re-implement this function
       if constexpr (std::is_same_v<decltype(&Derived::threadlevel_flags),
                         decltype(&base_type::threadlevel_flags)>)
       {
@@ -820,24 +820,24 @@ public:
     // --------------------------------------------------------------------
     constexpr std::int64_t memory_registration_mode_flags()
     {
-      // if derived class does not re-implement this function
+      // if derived class does NOT re-implement this function
       if constexpr (std::is_same_v<decltype(&Derived::memory_registration_mode_flags),
                         decltype(&base_type::memory_registration_mode_flags)>)
       {
-        std::int64_t base_flags = FI_MR_ALLOCATED;
+        std::int64_t base_flags = FI_MR_ALLOCATED | FI_MR_LOCAL;
 
 #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
         base_flags = base_flags | FI_MR_HMEM;
 #endif
 
 #if defined(LIBFATBAT_HAVE_PROVIDER_CXI)
-        return base_flags | FI_MR_ENDPOINT;
-
+        // CXI requires FI_MR_PROV_KEY if fi_writedata is needed
+        base_flags |= FI_MR_ENDPOINT | FI_MR_PROV_KEY;
 #elif defined(LIBFATBAT_HAVE_PROVIDER_EFA)
         return base_flags | FI_MR_MMU_NOTIFY | FI_MR_ENDPOINT;
-#else
-        return base_flags;
 #endif
+
+        return base_flags;
       }
       else
       {
@@ -852,7 +852,7 @@ public:
     // --------------------------------------------------------------------
     constexpr bool needs_cq_counters()
     {    //
-      // if derived class does not re-implement this function
+      // if derived class does NOT re-implement this function
       if constexpr (std::is_same_v<decltype(&Derived::needs_cq_counters),
                         decltype(&base_type::needs_cq_counters)>)
       {
