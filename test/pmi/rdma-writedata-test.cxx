@@ -216,6 +216,37 @@ int main(int argc, char** argv)
       }
     }
 
+    // On some providers, CQ data and TX completion can arrive before all bytes
+    // are globally visible in the peer target buffer. Wait for full visibility.
+    auto const visibility_wait_start = std::chrono::steady_clock::now();
+    while (true)
+    {
+      bool all_visible = true;
+      for (int r = 0; r < static_cast<int>(size); ++r)
+      {
+        if (rank == static_cast<size_t>(r)) continue;
+        auto* data = static_cast<uint8_t const*>(rma_target_buffers[r].get());
+        uint8_t const expected = static_cast<uint8_t>(r);
+        for (std::size_t i = 0; i < static_cast<std::size_t>(message_size); ++i)
+        {
+          if (data[i] != expected)
+          {
+            all_visible = false;
+            break;
+          }
+        }
+        if (!all_visible) { break; }
+      }
+      if (all_visible) { break; }
+      if (std::chrono::steady_clock::now() - visibility_wait_start > std::chrono::seconds(10))
+      {
+        LIBFATBAT_ERROR(rdmawritedatatest_log,
+            "rank {} timeout waiting for writedata visibility at iteration {}", rank, it);
+        return EXIT_FAILURE;
+      }
+      std::this_thread::sleep_for(std::chrono::microseconds(10));
+    }
+
     for (int r = 0; r < static_cast<int>(size); ++r)
     {
       if (rank == static_cast<size_t>(r)) continue;
