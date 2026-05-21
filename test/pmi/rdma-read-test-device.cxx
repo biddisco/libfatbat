@@ -90,12 +90,6 @@ int main(int argc, char** argv)
   constexpr int32_t message_size = 1024 * 1024 * 16;    // 16 MB
 
   // we want to exchange RMA keys with other ranks, so lets create storage
-  struct rma_key_info
-  {
-    void* address;
-    uint64_t remote_key;
-    uint64_t length;
-  };
   // allocate space for an RMA key from each rank and space to read remote data into
   std::vector<memory_context::heap_type::pointer> rma_read_keys;
   std::vector<memory_context::heap_type::pointer> rma_read_buffers;
@@ -141,31 +135,7 @@ int main(int argc, char** argv)
     }
     LIBFATBAT_INFO(rdmatest_log, "{:<20} RMA buffers :rank {}", "initialized", rank);
 
-    // --------------------------------------------------
-    // for each rank, exchange an RMA key
-    // --------------------------------------------------
-    for (int r = 0; r < size; ++r)
-    {
-      if (rank != r)
-      {
-        // receive an rma key from the other rank,
-        LIBFATBAT_TRACE(rdmatest_log, "{:<20} rank {} from rank {}", "receiving RMA key", rank, r);
-        comm.recv(rma_read_keys[r], sizeof(rma_key_info), r, r, nullptr);
-
-        // and send them our rma key (in any order since we are using tags to match messages)
-        LIBFATBAT_TRACE(rdmatest_log, "{:<20} rank {} to rank {}", "sending RMA key", rank, r);
-        comm.send(local_data_keys[r], sizeof(rma_key_info), r, rank, nullptr);
-      }
-    }
-
-    // --------------------------------------------------
-    // complete the key exchange by polling for completions until we have received all keys and sent all keys
-    // --------------------------------------------------
-    while ((uint32_t) controller.sends_complete_ < controller.sends_posted_ ||
-        (uint32_t) controller.recvs_complete_ < controller.recvs_posted_)
-    {
-      std::this_thread::sleep_for(std::chrono::microseconds(1));
-    }
+    exchange_rma_keys(comm, controller, local_data_keys, rma_read_keys);
     LIBFATBAT_INFO(rdmatest_log, "{:<20} RMA keys    :rank {}", "exchanged", rank);
     pmi.fence();
 
@@ -182,9 +152,7 @@ int main(int argc, char** argv)
         if (rank != r)    // we don't read from ourselves
         {
           auto remote_key_info = static_cast<rma_key_info*>(rma_read_keys[r].get());
-          // since we are not using FI_MR_VIRT_ADDR we use an offset of 0 for the remote address
-          // and rely on the remote key to contain the base address, this is more portable across providers
-          auto address = nullptr;
+          auto address = remote_rma_addr_ptr(controller, *remote_key_info, 0);
           auto key = remote_key_info->remote_key;
           auto length = remote_key_info->length;
           LIBFATBAT_INFO(rdmatest_log,

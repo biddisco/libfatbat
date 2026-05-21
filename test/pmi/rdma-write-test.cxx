@@ -108,22 +108,12 @@ int main(int argc, char** argv)
 
   LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {}", "initialized", rank);
 
-  for (int r = 0; r < static_cast<int>(size); ++r)
-  {
-    if (rank == static_cast<size_t>(r)) continue;
-
-    comm.recv(rma_write_keys[r], sizeof(rma_key_info), r, r, nullptr);
-    comm.send(local_source_keys[r], sizeof(rma_key_info), r, rank, nullptr);
-  }
-
-  wait_for_msg_completions(controller);
+  exchange_rma_keys(comm, controller, local_source_keys, rma_write_keys);
   LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {}", "key exchange complete", rank);
   pmi.fence();
 
   for (std::size_t it = 0; it < iterations; ++it)
   {
-    bool const use_relative_remote_addr = controller.use_relative_remote_addr();
-
     // Clear target buffers for this iteration
     for (int r = 0; r < static_cast<int>(size); ++r)
     {
@@ -143,8 +133,7 @@ int main(int argc, char** argv)
             rank, remote_key_info->length, r);
         return EXIT_FAILURE;
       }
-        uint64_t remote_addr =
-          use_relative_remote_addr ? uint64_t(0) : (uint64_t) remote_key_info->address;
+      uint64_t remote_addr = remote_rma_addr_value(controller, *remote_key_info);
       comm.write(local_source_buffers[r], message_size, r, remote_addr, remote_key_info->remote_key,
           nullptr);
       LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} -> rank {} key {:#08x}", "fi_write posted",

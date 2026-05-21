@@ -122,17 +122,11 @@ int main(int argc, char** argv)
   }
   LIBFATBAT_INFO(rdmawritedatatest_log, "{:<20} rank {}", "initialized", rank);
 
-  for (int r = 0; r < static_cast<int>(size); ++r)
-  {
-    if (rank == static_cast<size_t>(r)) continue;
-
-    comm.recv(rma_write_keys[r], sizeof(rma_key_info), r, r, nullptr);
-    comm.send(local_source_keys[r], sizeof(rma_key_info), r, rank, nullptr);
-  }
-
-  wait_for_msg_completions(controller);
+  exchange_rma_keys(comm, controller, local_source_keys, rma_write_keys);
   LIBFATBAT_INFO(rdmawritedatatest_log, "{:<20} rank {}", "key exchange complete", rank);
   pmi.fence();
+
+  bool const supports_delivery_complete = controller.supports_delivery_complete();
 
   std::size_t const peers = size - 1;
 
@@ -182,9 +176,9 @@ int main(int argc, char** argv)
         return EXIT_FAILURE;
       }
 
-      uint64_t const remote_addr = 0;
+        uint64_t const remote_addr = remote_rma_addr_value(controller, *remote_key_info);
       uint64_t const imm_data = make_imm_data(rank, it + 1);
-      comm.write_data(local_source_buffers[r], message_size, r, remote_addr,
+      comm.write_data_delivery(local_source_buffers[r], message_size, r, remote_addr,
           remote_key_info->remote_key, imm_data, nullptr);
       LIBFATBAT_INFO(rdmawritedatatest_log, "{:<20} rank {} -> rank {} key {:#08x} imm {:#016x}",
           "fi_writedata posted", rank, r, remote_key_info->remote_key, imm_data);
@@ -216,35 +210,36 @@ int main(int argc, char** argv)
       }
     }
 
-    // On some providers, CQ data and TX completion can arrive before all bytes
-    // are globally visible in the peer target buffer. Wait for full visibility.
-    auto const visibility_wait_start = std::chrono::steady_clock::now();
-    while (true)
+    if (!supports_delivery_complete)
     {
-      bool all_visible = true;
-      for (int r = 0; r < static_cast<int>(size); ++r)
+      auto const visibility_wait_start = std::chrono::steady_clock::now();
+      while (true)
       {
-        if (rank == static_cast<size_t>(r)) continue;
-        auto* data = static_cast<uint8_t const*>(rma_target_buffers[r].get());
-        uint8_t const expected = static_cast<uint8_t>(r);
-        for (std::size_t i = 0; i < static_cast<std::size_t>(message_size); ++i)
+        bool all_visible = true;
+        for (int r = 0; r < static_cast<int>(size); ++r)
         {
-          if (data[i] != expected)
+          if (rank == static_cast<size_t>(r)) continue;
+          auto* data = static_cast<uint8_t const*>(rma_target_buffers[r].get());
+          uint8_t const expected = static_cast<uint8_t>(r);
+          for (std::size_t i = 0; i < static_cast<std::size_t>(message_size); ++i)
           {
-            all_visible = false;
-            break;
+            if (data[i] != expected)
+            {
+              all_visible = false;
+              break;
+            }
           }
+          if (!all_visible) { break; }
         }
-        if (!all_visible) { break; }
+        if (all_visible) { break; }
+        if (std::chrono::steady_clock::now() - visibility_wait_start > std::chrono::seconds(10))
+        {
+          LIBFATBAT_ERROR(rdmawritedatatest_log,
+              "rank {} timeout waiting for writedata visibility at iteration {}", rank, it);
+          return EXIT_FAILURE;
+        }
+        std::this_thread::sleep_for(std::chrono::microseconds(10));
       }
-      if (all_visible) { break; }
-      if (std::chrono::steady_clock::now() - visibility_wait_start > std::chrono::seconds(10))
-      {
-        LIBFATBAT_ERROR(rdmawritedatatest_log,
-            "rank {} timeout waiting for writedata visibility at iteration {}", rank, it);
-        return EXIT_FAILURE;
-      }
-      std::this_thread::sleep_for(std::chrono::microseconds(10));
     }
 
     for (int r = 0; r < static_cast<int>(size); ++r)

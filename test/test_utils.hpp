@@ -24,6 +24,20 @@ struct rma_key_info
 };
 
 // ------------------------------------------------------------------
+// Compute remote RMA address using provider mode.
+inline uint64_t remote_rma_addr_value(
+    test_controller const& controller, rma_key_info const& key_info, uint64_t offset = 0)
+{
+  return controller.use_relative_remote_addr() ? offset : (uint64_t(key_info.address) + offset);
+}
+
+inline void* remote_rma_addr_ptr(
+    test_controller const& controller, rma_key_info const& key_info, uint64_t offset = 0)
+{
+  return reinterpret_cast<void*>(remote_rma_addr_value(controller, key_info, offset));
+}
+
+// ------------------------------------------------------------------
 // Wait for all send/recv completions
 inline void wait_for_msg_completions(test_controller& controller)
 {
@@ -55,6 +69,21 @@ inline void wait_for_counter(std::atomic<uint32_t> const& counter, uint32_t targ
 }
 
 // ------------------------------------------------------------------
+template <typename PointerVec>
+inline void exchange_rma_keys(communicator& comm, test_controller& controller,
+    PointerVec const& local_keys, PointerVec& remote_keys)
+{
+  for (std::size_t r = 0; r < remote_keys.size(); ++r)
+  {
+    if (r == static_cast<std::size_t>(comm.rank())) { continue; }
+    comm.recv(remote_keys[r], sizeof(rma_key_info), static_cast<rank_type>(r),
+        static_cast<tag_type>(r), nullptr);
+    comm.send(local_keys[r], sizeof(rma_key_info), static_cast<rank_type>(r), comm.rank(), nullptr);
+  }
+  wait_for_msg_completions(controller);
+}
+
+// ------------------------------------------------------------------
 // Semaphore structure for remote completion notification
 // creating a semaphore involves key exchange of buffer info so it is a collective operation
 template <typename HeapType>
@@ -74,6 +103,8 @@ struct semaphore_info
   {
     // allocate a local buffer for signals to be written into
     local_buffer = heap.allocate(sizeof(std::uint64_t) * size, 0);
+    std::fill(static_cast<std::uint64_t*>(local_buffer.get()),
+        static_cast<std::uint64_t*>(local_buffer.get()) + size, std::uint64_t(0));
     // get the key info for our local buffer
     local_key_info = rma_key_info{
         .address = local_buffer.handle().get_address(),
@@ -122,9 +153,8 @@ struct semaphore_info
     // write a 'signal value' into the remote rank's slot in their local buffer to signal completion
     auto& remote_info = remote_key_infos[rank];
     uint64_t const slot_offset = sizeof(std::uint64_t) * comm_->rank();
-    uint64_t const remote_addr = comm_->m_controller->use_relative_remote_addr() ?
-        slot_offset :
-        (uint64_t(remote_info.address) + slot_offset);
+    uint64_t const remote_addr =
+        remote_rma_addr_value(*comm_->m_controller, remote_info, slot_offset);
     comm_->inject_write_fenced(
         signal, static_cast<rank_type>(rank), remote_addr, remote_info.remote_key, nullptr);
   }

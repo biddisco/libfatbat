@@ -158,22 +158,7 @@ int main(int argc, char** argv)
     using semaphore_type = semaphore_info<memory_context::heap_type>;
     semaphore_type semaphores(&comm_keys, heap, rank, size);
 
-    // --------------------------------------------------
-    // Exchange RMA keys once: each rank sends its target buffer key and
-    // receives the target buffer key of every other rank.
-    // --------------------------------------------------
-    for (std::size_t r = 0; r < size; ++r)
-    {
-      if (r == rank) { continue; }
-      // receive rank r's target buffer key (they will send us where to write)
-      comm_keys.recv(remote_keys[r], sizeof(rma_key_info), static_cast<rank_type>(r),
-          static_cast<tag_type>(r), nullptr);
-      // send rank r our target buffer key (tell them where to write into us)
-      comm_keys.send(target_keys[r], sizeof(rma_key_info), static_cast<rank_type>(r),
-          static_cast<tag_type>(rank), nullptr);
-    }
-
-    wait_for_msg_completions(controller);
+    exchange_rma_keys(comm_keys, controller, target_keys, remote_keys);
     pmi.fence();
 
     // --------------------------------------------------
@@ -210,8 +195,7 @@ int main(int argc, char** argv)
                 throw std::runtime_error("invalid RMA key length");
               }
 
-              // Use zero offset without FI_MR_VIRT_ADDR; provider-relative addressing.
-              uint64_t const remote_addr = 0;
+                uint64_t const remote_addr = remote_rma_addr_value(controller, *remote_key_info);
               comm_chunk.write(source_buffers[r], msg_size, static_cast<rank_type>(r), remote_addr,
                   remote_key_info->remote_key, nullptr);
             }

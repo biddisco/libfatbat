@@ -25,16 +25,10 @@
 #include "test/controller.hpp"
 #include "test/pmi_helper.hpp"
 #include "test/polling_helper.hpp"
+#include "test/test_utils.hpp"
 
 // ------------------------------------------------------------------
 MAKE_LOGGER(rdmabench_log, "RdmaBench")
-
-struct rma_key_info
-{
-  void* address;
-  uint64_t remote_key;
-  uint64_t length;
-};
 
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv)
@@ -141,23 +135,7 @@ int main(int argc, char** argv)
     communicator comm_keys(&controller, rank, size);
     poller_guard pg(&controller, rank);
 
-    // --------------------------------------------------
-    // Exchange RMA keys once.
-    // --------------------------------------------------
-    for (std::size_t r = 0; r < size; ++r)
-    {
-      if (r == rank) { continue; }
-      comm_keys.recv(rma_read_keys[r], sizeof(rma_key_info), static_cast<rank_type>(r),
-          static_cast<tag_type>(r), nullptr);
-      comm_keys.send(local_data_keys[r], sizeof(rma_key_info), static_cast<rank_type>(r),
-          static_cast<tag_type>(rank), nullptr);
-    }
-
-    while ((uint32_t) controller.sends_complete_ < (uint32_t) controller.sends_posted_ ||
-        (uint32_t) controller.recvs_complete_ < (uint32_t) controller.recvs_posted_)
-    {
-      std::this_thread::sleep_for(std::chrono::microseconds(1));
-    }
+    exchange_rma_keys(comm_keys, controller, local_data_keys, rma_read_keys);
     pmi.fence();
 
     for (std::size_t bitshift = min_shift; bitshift <= max_shift; ++bitshift)
@@ -193,8 +171,7 @@ int main(int argc, char** argv)
                 throw std::runtime_error("invalid RMA key length");
               }
 
-              // Use zero offset without FI_MR_VIRT_ADDR and rely on remote key base.
-              void* remote_addr = nullptr;
+                void* remote_addr = remote_rma_addr_ptr(controller, *remote_key_info, 0);
               comm_chunk.read(rma_read_buffers[r], msg_size, static_cast<rank_type>(r), remote_addr,
                   remote_key_info->remote_key, nullptr);
             }

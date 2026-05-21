@@ -313,6 +313,78 @@ struct communicator
   }
 
   // --------------------------------------------------------------------
+  // Write with remote CQ data and delivery-complete semantics.
+  operation_context* write_data_delivery(memory_context::heap_type::pointer const& ptr,
+      std::size_t size, rank_type dst, uint64_t remote_addr, uint64_t remote_key, uint64_t imm_data,
+      request_callback_type&& cb)
+  {
+    LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
+
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
+#else
+    auto const& reg = ptr.handle();
+#endif
+
+    if (cb) { cb = std::bind(std::move(cb), dst, 0); }
+    auto request = make_operation_context(std::move(cb));
+
+    struct iovec iov = {reg.get_address(), size};
+    void* desc = reg.get_local_key();
+    struct fi_rma_iov rma_iov = {remote_addr, size, remote_key};
+    struct fi_msg_rma msg = {};
+    msg.msg_iov = &iov;
+    msg.desc = &desc;
+    msg.iov_count = 1;
+    msg.addr = fi_addr_t(dst);
+    msg.rma_iov = &rma_iov;
+    msg.rma_iov_count = 1;
+    msg.context = request;
+    msg.data = imm_data;
+
+    m_controller->writes_posted_++;
+    LIBFATBAT_DEBUG(comm_log,
+        "{:<20} dst {} size {} remote_addr {:#018x} remote_key {:#08x} imm_data {:#016x} context "
+        "{:p}",
+        "write_data_delivery", dst, size, remote_addr, remote_key, imm_data, (void*) request);
+
+    bool delivery_mode_supported = true;
+    while (true)
+    {
+      ssize_t ret = fi_writemsg(
+          m_tx_endpoint.get_ep(), &msg, uint64_t(FI_REMOTE_CQ_DATA | FI_DELIVERY_COMPLETE));
+      if (ret == 0) { return request; }
+      if (ret == -FI_EAGAIN)
+      {
+        m_controller->poll_for_work_completions(this);
+        continue;
+      }
+      if (ret == -FI_EBADFLAGS || ret == -FI_EOPNOTSUPP || ret == -FI_ENOPROTOOPT ||
+          ret == -FI_ENOSYS || ret == -FI_EINVAL)
+      {
+        delivery_mode_supported = false;
+        LIBFATBAT_WARN(comm_log,
+            "{:<20} provider rejected FI_DELIVERY_COMPLETE flags, falling back to fi_writedata",
+            "write_data_delivery");
+        break;
+      }
+      if (ret == -FI_ENOENT)
+      {
+        LIBFATBAT_ERROR(comm_log, "{:<20}", "No destination endpoint, terminating.");
+        std::terminate();
+      }
+      throw libfatbat::fabric_error(int(ret), "fi_writemsg");
+    }
+
+    if (!delivery_mode_supported)
+    {
+      execute_fi_function(fi_writedata, "fi_writedata", m_tx_endpoint.get_ep(), reg.get_address(),
+          size, reg.get_local_key(), imm_data, fi_addr_t(dst), remote_addr, remote_key, request);
+    }
+    return request;
+  }
+
+  // --------------------------------------------------------------------
   // Perform an inject_write (RMA write, no completion, no context)
   void inject_write(
       void const* buf, std::size_t size, rank_type dst, uint64_t remote_addr, uint64_t remote_key)

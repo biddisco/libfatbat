@@ -873,6 +873,13 @@ public:
     bool supports_write_data() { return supportsWriteData_; }
 
     // --------------------------------------------------------------------
+    bool supports_delivery_complete() const
+    {
+      if (fabric_info_ == nullptr) { return false; }
+      return (fabric_info_->caps & FI_DELIVERY_COMPLETE) != 0;
+    }
+
+    // --------------------------------------------------------------------
     // Called by poll_recv_queue_default when a remote fi_writedata CQ event arrives.
     // Derived classes override handle_remote_cq_data_completion_impl to collect the value.
     // note that an operation context is not used for fi_writedata rma event completions as there is no preposted context
