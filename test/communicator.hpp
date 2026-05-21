@@ -305,7 +305,11 @@ struct communicator
   {
     LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
 
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    auto const& reg = ptr.on_device() ? ptr.device_handle() : ptr.handle();
+#else
     auto const& reg = ptr.handle();
+#endif
     if (cb) { cb = std::bind(std::move(cb), dst, 0); }
     auto request = make_operation_context(std::move(cb));
     write_data_remote(reg, size, fi_addr_t(dst), remote_addr, remote_key, imm_data, request);

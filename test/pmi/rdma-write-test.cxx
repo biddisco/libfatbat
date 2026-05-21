@@ -15,6 +15,7 @@
 #include <vector>
 //
 #include <boost/program_options.hpp>
+#include <hwmalloc/device.hpp>
 #include <hwmalloc/heap.hpp>
 //
 #include "libfatbat/logging.hpp"
@@ -42,13 +43,36 @@ int main(int argc, char** argv)
 
   namespace po = boost::program_options;
   po::options_description desc("Options");
-  desc.add_options()("debug", "Enable debug mode");
+  desc.add_options()("help,h", "Show help")("debug", "Enable debug mode")("gpu",
+      "Use GPU memory for write source buffers")("gpu-device",
+      po::value<int>()->default_value(0), "GPU device id used when --gpu is set");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
   po::notify(vm);
 
+  if (vm.count("help") > 0)
+  {
+    std::cout << desc << std::endl;
+    return EXIT_SUCCESS;
+  }
+
   bool attach_debugger = vm.count("debug") > 0;
+  bool const use_gpu = vm.count("gpu") > 0;
+  int const gpu_device = vm["gpu-device"].as<int>();
+
+  if (gpu_device < 0)
+  {
+    LIBFATBAT_ERROR(rdmawritetest_log, "gpu-device must be >= 0");
+    return EXIT_FAILURE;
+  }
+#ifndef LIBFATBAT_HAVE_GPU_SUPPORT
+  if (use_gpu)
+  {
+    LIBFATBAT_ERROR(rdmawritetest_log, "--gpu requested but GPU support is not enabled");
+    return EXIT_FAILURE;
+  }
+#endif
 
   std::size_t rank, size;
   std::size_t nthreads = 2;
@@ -90,10 +114,21 @@ int main(int argc, char** argv)
 
     auto remote_key_buffer = heap.allocate(sizeof(rma_key_info), 0);
     rma_write_keys.push_back(remote_key_buffer);
+    #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    auto source_buffer = use_gpu ? heap.allocate(message_size, 0, gpu_device) : heap.allocate(message_size, 0);
+    #else
     auto source_buffer = heap.allocate(message_size, 0);
+    #endif
     std::fill((uint8_t*) source_buffer.get(), (uint8_t*) source_buffer.get() + message_size,
         static_cast<uint8_t>(
             rank + 17));    // Use a different pattern than the target buffer to help debugging
+  #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    if (use_gpu && source_buffer.on_device())
+    {
+      hwmalloc::memcpy_to_device(
+        source_buffer.device_ptr(), source_buffer.get(), static_cast<std::size_t>(message_size));
+    }
+  #endif
     local_source_buffers.push_back(source_buffer);
 
     auto source_key = heap.allocate(sizeof(rma_key_info), 0);

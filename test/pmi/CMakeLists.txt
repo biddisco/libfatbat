@@ -3,6 +3,7 @@
 # ------------------------------------------------------------------------------
 set(PMI_TEST_SRCS)
 set(PMI_BENCH_SRCS)
+set(PMI_GPU_TEST_SRCS rdma-read-test rdma-write-test rdma-writedata-test)
 
 if(PMIx_FOUND)
   list(APPEND PMI_TEST_SRCS kv-test-pmix pmi-boot-libfabric)
@@ -19,10 +20,6 @@ if(TARGET Boost::program_options AND FATBAT_WITH_HWMALLOC)
   set(rdma-read-benchmark_PARAMS "-i" "2")
   set(rdma-write-benchmark_PARAMS "-i" "2")
   set(rdma-writedata-benchmark_PARAMS "-i" "2")
-endif()
-
-if(FATBAT_WITH_GPU_SUPPORT AND FATBAT_WITH_HWMALLOC)
-  list(APPEND PMI_TEST_SRCS rdma-read-test-device)
 endif()
 
 # ------------------------------------------------------------------------------
@@ -53,6 +50,13 @@ function(create_test_executable test COMPILE_ONLY)
              COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
                      $<TARGET_FILE:${test}> ${MPIEXEC_POSTFLAGS} ${test_params}
     )
+
+    if(FATBAT_WITH_GPU_SUPPORT AND test IN_LIST PMI_GPU_TEST_SRCS)
+      add_test(NAME ${test}-gpu
+               COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+                       $<TARGET_FILE:${test}> ${MPIEXEC_POSTFLAGS} ${test_params} --gpu
+      )
+    endif()
   endif()
 endfunction()
 

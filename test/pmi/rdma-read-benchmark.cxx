@@ -17,6 +17,7 @@
 #include <vector>
 //
 #include <boost/program_options.hpp>
+#include <hwmalloc/device.hpp>
 #include <hwmalloc/heap.hpp>
 //
 #include "libfatbat/logging.hpp"
@@ -42,7 +43,9 @@ int main(int argc, char** argv)
       po::value<std::size_t>()->default_value(1000), "Number of iterations per message size")(
       "min-shift", po::value<std::size_t>()->default_value(0),
       "Minimum message-size shift (size = 1<<shift)")("max-shift",
-      po::value<std::size_t>()->default_value(20), "Maximum message-size shift (size = 1<<shift)");
+      po::value<std::size_t>()->default_value(20), "Maximum message-size shift (size = 1<<shift)")(
+      "gpu", "Use GPU memory for read source and destination buffers")("gpu-device",
+      po::value<int>()->default_value(0), "GPU device id used when --gpu is set");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -58,6 +61,8 @@ int main(int argc, char** argv)
   std::size_t const iterations = vm["iterations"].as<std::size_t>();
   std::size_t const min_shift = vm["min-shift"].as<std::size_t>();
   std::size_t const max_shift = vm["max-shift"].as<std::size_t>();
+  bool const use_gpu = vm.count("gpu") > 0;
+  int const gpu_device = vm["gpu-device"].as<int>();
 
   if (iterations == 0)
   {
@@ -69,6 +74,18 @@ int main(int argc, char** argv)
     LIBFATBAT_ERROR(rdmabench_log, "min-shift must be <= max-shift");
     return EXIT_FAILURE;
   }
+  if (gpu_device < 0)
+  {
+    LIBFATBAT_ERROR(rdmabench_log, "gpu-device must be >= 0");
+    return EXIT_FAILURE;
+  }
+#ifndef LIBFATBAT_HAVE_GPU_SUPPORT
+  if (use_gpu)
+  {
+    LIBFATBAT_ERROR(rdmabench_log, "--gpu requested but GPU support is not enabled");
+    return EXIT_FAILURE;
+  }
+#endif
 
   // -------------------------------------------------
   // we need these for basic control
@@ -106,17 +123,37 @@ int main(int argc, char** argv)
 
   for (std::size_t r = 0; r < size; ++r)
   {
+    #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    rma_read_buffers[r] = use_gpu ? heap.allocate(max_message_size, 0, gpu_device) : heap.allocate(max_message_size, 0);
+    #else
     rma_read_buffers[r] = heap.allocate(max_message_size, 0);
+    #endif
     rma_read_keys[r] = heap.allocate(sizeof(rma_key_info), 0);
 
+    #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    local_data_buffers[r] = use_gpu ? heap.allocate(max_message_size, 0, gpu_device) : heap.allocate(max_message_size, 0);
+    #else
     local_data_buffers[r] = heap.allocate(max_message_size, 0);
+    #endif
     std::fill((char*) (local_data_buffers[r].get()),
         (char*) (local_data_buffers[r].get()) + max_message_size, static_cast<uint8_t>(rank));
+  #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    if (use_gpu && local_data_buffers[r].on_device())
+    {
+      hwmalloc::memcpy_to_device(
+        local_data_buffers[r].device_ptr(), local_data_buffers[r].get(), max_message_size);
+    }
+  #endif
 
     local_data_keys[r] = heap.allocate(sizeof(rma_key_info), 0);
+  #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    auto const& key_handle = (use_gpu && local_data_buffers[r].on_device()) ? local_data_buffers[r].device_handle() : local_data_buffers[r].handle();
+  #else
+    auto const& key_handle = local_data_buffers[r].handle();
+  #endif
     rma_key_info info{
-        .address = local_data_buffers[r].handle().get_address(),
-        .remote_key = (uint64_t) local_data_buffers[r].handle().get_remote_key(),
+      .address = key_handle.get_address(),
+      .remote_key = (uint64_t) key_handle.get_remote_key(),
         .length = max_message_size,
     };
     std::memcpy(local_data_keys[r].get(), &info, sizeof(rma_key_info));
@@ -125,8 +162,8 @@ int main(int argc, char** argv)
   if (rank == 0)
   {
     std::printf("# rdma read benchmark\n");
-    std::printf("# iterations=%zu min_shift=%zu max_shift=%zu peers_per_rank=%zu\n", iterations,
-        min_shift, max_shift, size - 1);
+    std::printf("# iterations=%zu min_shift=%zu max_shift=%zu peers_per_rank=%zu memory=%s gpu_device=%d\n",
+      iterations, min_shift, max_shift, size - 1, use_gpu ? "gpu" : "host", gpu_device);
     std::printf("%-12s%-14s%-14s%-14s%-16s%-22s\n", "bytes", "iters", "reads", "time_ms",
         "msg_rate_M/s", "agg_read_MB/s");
   }

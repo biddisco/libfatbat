@@ -42,7 +42,9 @@ int main(int argc, char** argv)
       po::value<std::size_t>()->default_value(1000), "Number of iterations per message size")(
       "min-shift", po::value<std::size_t>()->default_value(0),
       "Minimum message-size shift (size = 1<<shift)")("max-shift",
-      po::value<std::size_t>()->default_value(20), "Maximum message-size shift (size = 1<<shift)");
+      po::value<std::size_t>()->default_value(20), "Maximum message-size shift (size = 1<<shift)")(
+      "gpu", "Use GPU source buffers for write payloads")("gpu-device",
+      po::value<int>()->default_value(0), "GPU device id used when --gpu is set");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -58,6 +60,8 @@ int main(int argc, char** argv)
   std::size_t const iterations = vm["iterations"].as<std::size_t>();
   std::size_t const min_shift = vm["min-shift"].as<std::size_t>();
   std::size_t const max_shift = vm["max-shift"].as<std::size_t>();
+  bool const use_gpu = vm.count("gpu") > 0;
+  int const gpu_device = vm["gpu-device"].as<int>();
 
   if (iterations == 0)
   {
@@ -69,6 +73,18 @@ int main(int argc, char** argv)
     LIBFATBAT_ERROR(rdmawritebench_log, "min-shift must be <= max-shift");
     return EXIT_FAILURE;
   }
+  if (gpu_device < 0)
+  {
+    LIBFATBAT_ERROR(rdmawritebench_log, "gpu-device must be >= 0");
+    return EXIT_FAILURE;
+  }
+#ifndef LIBFATBAT_HAVE_GPU_SUPPORT
+  if (use_gpu)
+  {
+    LIBFATBAT_ERROR(rdmawritebench_log, "--gpu requested but GPU support is not enabled");
+    return EXIT_FAILURE;
+  }
+#endif
 
   // -------------------------------------------------
   std::size_t rank, size;
@@ -110,6 +126,13 @@ int main(int argc, char** argv)
   std::vector<memory_context::heap_type::pointer> source_buffers(size);
   std::vector<memory_context::heap_type::pointer> remote_keys(size);
 
+  auto allocate_source_buffer = [&](std::size_t bytes) {
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    if (use_gpu) { return heap.allocate(bytes, 0, gpu_device); }
+#endif
+    return heap.allocate(bytes, 0);
+  };
+
   for (std::size_t r = 0; r < size; ++r)
   {
     // target buffer: where remote ranks will write into
@@ -127,7 +150,7 @@ int main(int argc, char** argv)
     std::memcpy(target_keys[r].get(), &info, sizeof(rma_key_info));
 
     // source buffer: what we write from when targeting rank r
-    source_buffers[r] = heap.allocate(max_message_size, 0);
+    source_buffers[r] = allocate_source_buffer(max_message_size);
     std::fill((char*) source_buffers[r].get(), (char*) source_buffers[r].get() + max_message_size,
         static_cast<char>(rank));
 
@@ -141,8 +164,8 @@ int main(int argc, char** argv)
   if (rank == 0)
   {
     std::printf("# rdma write benchmark\n");
-    std::printf("# iterations=%zu min_shift=%zu max_shift=%zu peers_per_rank=%zu\n", iterations,
-        min_shift, max_shift, size - 1);
+    std::printf("# iterations=%zu min_shift=%zu max_shift=%zu peers_per_rank=%zu memory=%s gpu_device=%d\n",
+      iterations, min_shift, max_shift, size - 1, use_gpu ? "gpu" : "host", gpu_device);
     std::printf("%-12s%-14s%-14s%-14s%-16s%-22s\n", "bytes", "iters", "writes", "time_ms",
         "msg_rate_M/s", "agg_write_MB/s");
   }

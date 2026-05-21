@@ -14,6 +14,7 @@
 #include <thread>
 //
 #include <boost/program_options.hpp>
+#include <hwmalloc/device.hpp>
 #include <hwmalloc/heap.hpp>
 //
 #include "libfatbat/logging.hpp"
@@ -37,15 +38,38 @@ int main(int argc, char** argv)
   // define a boost program options parser and setup flags
   namespace po = boost::program_options;
   po::options_description desc("Options");
-  desc.add_options()("debug", "Enable debug mode");
+  desc.add_options()("help,h", "Show help")("debug", "Enable debug mode")("gpu",
+      "Use GPU memory for the exported source buffers")("gpu-device",
+      po::value<int>()->default_value(0), "GPU device id used when --gpu is set");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
   po::notify(vm);
 
+  if (vm.count("help") > 0)
+  {
+    std::cout << desc << std::endl;
+    return EXIT_SUCCESS;
+  }
+
   // -------------------------------------------------
   // did the user add "--debug" flag?
   bool attach_debugger = vm.count("debug") > 0;
+  bool const use_gpu = vm.count("gpu") > 0;
+  int const gpu_device = vm["gpu-device"].as<int>();
+
+  if (gpu_device < 0)
+  {
+    LIBFATBAT_ERROR(rdmatest_log, "gpu-device must be >= 0");
+    return EXIT_FAILURE;
+  }
+#ifndef LIBFATBAT_HAVE_GPU_SUPPORT
+  if (use_gpu)
+  {
+    LIBFATBAT_ERROR(rdmatest_log, "--gpu requested but GPU support is not enabled");
+    return EXIT_FAILURE;
+  }
+#endif
 
   // -------------------------------------------------
   // we need these for basic control
@@ -102,7 +126,11 @@ int main(int argc, char** argv)
     for (int i = 0; i < size; i++)
     {
       // this is just a flat array of memory for reading large data blocks into
-      auto remote_read_buffer = heap.allocate(message_size, 0);
+        #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+        auto remote_read_buffer = use_gpu ? heap.allocate(message_size, 0, gpu_device) : heap.allocate(message_size, 0);
+        #else
+        auto remote_read_buffer = heap.allocate(message_size, 0);
+        #endif
       rma_read_buffers.push_back(remote_read_buffer);
 
       // to perform reads, we need to get keys from each rank, we will store them in here
@@ -112,19 +140,35 @@ int main(int argc, char** argv)
       rma_read_keys.push_back(remote_key_buffer);
 
       // allocate a flat block of memory (per rank) that others will read from
+    #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+      auto local_data_buffer = use_gpu ? heap.allocate(message_size, 0, gpu_device) : heap.allocate(message_size, 0);
+    #else
       auto local_data_buffer = heap.allocate(message_size, 0);
-      // fill the buffer with a pattern based on our rank
+    #endif
+      // fill the host mirror with a pattern based on our rank
       std::fill((char*) (local_data_buffer.get()), (char*) (local_data_buffer.get()) + message_size,
           static_cast<uint8_t>(rank));
+    #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+      if (use_gpu && local_data_buffer.on_device())
+      {
+        hwmalloc::memcpy_to_device(
+        local_data_buffer.device_ptr(), local_data_buffer.get(), message_size);
+      }
+    #endif
       local_data_buffers.push_back(local_data_buffer);
 
       // allocate buffers for rma keys that others can use to read with
       auto local_data_key = heap.allocate(sizeof(rma_key_info), 0);
-      rma_key_info info{
-          .address = local_data_buffer.handle().get_address(),                     //
-          .remote_key = (uint64_t) local_data_buffer.handle().get_remote_key(),    //
-          .length = message_size                                                   //
-      };
+        #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+        auto const& key_handle = (use_gpu && local_data_buffer.on_device()) ? local_data_buffer.device_handle() : local_data_buffer.handle();
+        #else
+        auto const& key_handle = local_data_buffer.handle();
+        #endif
+        rma_key_info info{
+          .address = key_handle.get_address(),
+          .remote_key = (uint64_t) key_handle.get_remote_key(),
+          .length = message_size
+        };
       std::memcpy(local_data_key.get(), &info, sizeof(rma_key_info));
       local_data_keys.push_back(local_data_key);
     }
@@ -160,11 +204,19 @@ int main(int argc, char** argv)
             throw std::runtime_error("invalid RMA key info length");
           }
           assert(message_size == length);
-          comm.read(rma_read_buffers[r], message_size, r, address, key,
-              [buf = rma_read_buffers[r].get(), sz = message_size, thisrank = rank](
-                  rank_type remote_rank, tag_type tag) {
-                verify_buffer(buf, sz, thisrank, remote_rank, "read completion", remote_rank, tag);
-              });
+          if (use_gpu)
+          {
+            comm.read(rma_read_buffers[r], message_size, r, address, key, nullptr);
+          }
+          else
+          {
+            comm.read(rma_read_buffers[r], message_size, r, address, key,
+                [buf = rma_read_buffers[r].get(), sz = message_size, thisrank = rank](
+                    rank_type remote_rank, tag_type tag) {
+                  verify_buffer(buf, sz, thisrank, remote_rank, "read completion", remote_rank,
+                      tag);
+                });
+          }
         }
       }
 
@@ -174,6 +226,23 @@ int main(int argc, char** argv)
       while ((uint32_t) controller.reads_complete_ < controller.reads_posted_)
       {
         std::this_thread::sleep_for(std::chrono::microseconds(1));
+      }
+
+      if (use_gpu)
+      {
+        for (int r = 0; r < size; ++r)
+        {
+          if (rank == static_cast<std::size_t>(r)) continue;
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+          if (rma_read_buffers[r].on_device())
+          {
+            hwmalloc::memcpy_to_host(rma_read_buffers[r].get(), rma_read_buffers[r].device_ptr(),
+                message_size);
+          }
+#endif
+          verify_buffer(rma_read_buffers[r].get(), message_size, rank, r, "read completion", r,
+              0);
+        }
       }
       LIBFATBAT_INFO(rdmatest_log, "{:<20} RMA buffers : rank {}", "read complete", rank);
     }

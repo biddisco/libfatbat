@@ -99,7 +99,6 @@ namespace libfatbat {
         int handle = device_id;
 # if defined(LIBFATBAT_HAVE_CUDA)
         attr.iface = FI_HMEM_CUDA;
-        LIBFATBAT_TRACE(memrgn_log, "CUDA set device id {} {}", device_id, handle);
 # elif defined(LIBFATBAT_HAVE_HIP)
         attr.iface = FI_HMEM_ROCR;
         LIBFATBAT_TRACE(memrgn_log, "HIP set device id {} {}", device_id, handle);
