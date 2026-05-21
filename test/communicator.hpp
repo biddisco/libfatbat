@@ -313,6 +313,67 @@ struct communicator
   }
 
   // --------------------------------------------------------------------
+  // Perform an inject_write (RMA write, no completion, no context)
+  void inject_write(
+      void const* buf, std::size_t size, rank_type dst, uint64_t remote_addr, uint64_t remote_key)
+  {
+    LIBFATBAT_DEBUG(comm_log, "{:<20} dst {} size {} remote_addr {:#018x} remote_key {:#08x}",
+        "inject_write", dst, size, remote_addr, remote_key);
+    execute_fi_function(fi_inject_write, "fi_inject_write", m_tx_endpoint.get_ep(), buf, size, dst,
+        remote_addr, remote_key);
+  }
+
+  // --------------------------------------------------------------------
+  // Small control-path signal write.
+  // We intentionally use fi_inject_write here because some providers reject
+  // fi_writemsg(FI_INJECT|FI_FENCE) for RMA message ops.
+  operation_context* inject_write_fenced(std::uint64_t flag, rank_type dst, uint64_t remote_addr,
+      uint64_t remote_key, request_callback_type&& cb)
+  {
+    LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
+    LIBFATBAT_DEBUG(comm_log, "{:<20} dst {} size {} remote_addr {:#018x} remote_key {:#08x}",
+        "inject_write_fenced", dst, sizeof(std::uint64_t), remote_addr, remote_key);
+    execute_fi_function(fi_inject_write, "fi_inject_write", m_tx_endpoint.get_ep(), &flag,
+        sizeof(std::uint64_t), fi_addr_t(dst), remote_addr, remote_key);
+    if (cb) { cb(dst, 0); }
+    return nullptr;
+  }
+
+  // --------------------------------------------------------------------
+  // Preserved legacy variant using fi_writemsg(FI_INJECT|FI_FENCE).
+  // Some providers (e.g. CXI) may reject this with -FI_EINVAL.
+  operation_context* inject_write_fenced_writemsg_legacy(std::uint64_t flag, rank_type dst,
+      uint64_t remote_addr, uint64_t remote_key, request_callback_type&& cb)
+  {
+    LIBFATBAT_SCOPE(comm_log, "{} {}", (void*) (this), __func__);
+
+    if (cb) { cb = std::bind(std::move(cb), dst, 0); }
+    auto request = make_operation_context(std::move(cb));
+
+    struct iovec iov = {.iov_base = &flag, .iov_len = sizeof(std::uint64_t)};
+    struct fi_rma_iov rma_iov = {remote_addr, sizeof(std::uint64_t), remote_key};
+    struct fi_msg_rma msg = {
+        .msg_iov = &iov,
+        .desc = nullptr,
+        .iov_count = 1,
+        .addr = fi_addr_t(dst),
+        .rma_iov = &rma_iov,
+        .rma_iov_count = 1,
+        .context = request,
+        .data = 0,
+    };
+
+    m_controller->writes_posted_++;
+    LIBFATBAT_DEBUG(comm_log,
+        "{:<20} dst {} size {} remote_addr {:#018x} remote_key {:#08x} context {:p}",
+        "write_fenced_legacy", dst, sizeof(std::uint64_t), remote_addr, remote_key,
+        (void*) request);
+    execute_fi_function(
+        fi_writemsg, "fi_writemsg", m_tx_endpoint.get_ep(), &msg, uint64_t(FI_INJECT | FI_FENCE));
+    return request;
+  }
+
+  // --------------------------------------------------------------------
   operation_context* send(memory_context::heap_type::pointer const& ptr, std::size_t size,
       rank_type dst, tag_type tag, request_callback_type&& cb)
   {

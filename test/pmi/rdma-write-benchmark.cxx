@@ -98,6 +98,9 @@ int main(int argc, char** argv)
 
   std::size_t const max_message_size = (std::size_t{1} << max_shift);
 
+  // -------------------------------------------------
+  // setup read/write buffers for RDMA testing
+  // -------------------------------------------------
   // target_buffers[r] : local buffer that rank r will write into (we expose the RMA key for this)
   // target_keys[r]    : buffer holding the rma_key_info we send to rank r
   // source_buffers[r] : local data buffer we write from when sending to rank r
@@ -132,6 +135,9 @@ int main(int argc, char** argv)
     remote_keys[r] = heap.allocate(sizeof(rma_key_info), 0);
   }
 
+  // -------------------------------------------------
+  // prepare to start the benchmark
+  // -------------------------------------------------
   if (rank == 0)
   {
     std::printf("# rdma write benchmark\n");
@@ -141,27 +147,16 @@ int main(int argc, char** argv)
         "msg_rate_M/s", "agg_write_MB/s");
   }
 
-  // Allocate semaphores before the poller scope so polling threads are alive during exchange
-  using semaphore_type = semaphore_info<memory_context::heap_type>;
-  std::vector<semaphore_type> semaphores(size);
-
-  for (std::size_t i = 0; i < size; ++i)
-  {
-    semaphores[i].local_buffer = heap.allocate(sizeof(int32_t), 0);
-    semaphores[i].local_key_info = heap.allocate(sizeof(rma_key_info), 0);
-    semaphores[i].remote_key_info = heap.allocate(sizeof(rma_key_info), 0);
-
-    rma_key_info sem_info{
-        .address = semaphores[i].local_buffer.handle().get_address(),
-        .remote_key = (uint64_t) semaphores[i].local_buffer.handle().get_remote_key(),
-        .length = sizeof(int32_t),
-    };
-    std::memcpy(semaphores[i].local_key_info.get(), &sem_info, sizeof(rma_key_info));
-  }
-
+  // -------------------------------------------------
+  // scoped block where polling is active
+  // -------------------------------------------------
   {
     communicator comm_keys(&controller, rank, size);
     poller_guard pg(&controller, rank);
+
+    // create a semaphore to signal when we are done too other ranks
+    using semaphore_type = semaphore_info<memory_context::heap_type>;
+    semaphore_type semaphores(&comm_keys, heap, rank, size);
 
     // --------------------------------------------------
     // Exchange RMA keys once: each rank sends its target buffer key and
@@ -178,13 +173,12 @@ int main(int argc, char** argv)
           static_cast<tag_type>(rank), nullptr);
     }
 
-    while ((uint32_t) controller.sends_complete_ < (uint32_t) controller.sends_posted_ ||
-        (uint32_t) controller.recvs_complete_ < (uint32_t) controller.recvs_posted_)
-    {
-      std::this_thread::sleep_for(std::chrono::microseconds(1));
-    }
+    wait_for_msg_completions(controller);
     pmi.fence();
 
+    // --------------------------------------------------
+    // Test loop, iterate over messages sizes in powers of 2
+    // --------------------------------------------------
     for (std::size_t bitshift = min_shift; bitshift <= max_shift; ++bitshift)
     {
       std::size_t const msg_size = (std::size_t{1} << bitshift);
@@ -275,44 +269,38 @@ int main(int argc, char** argv)
             writes_done, expected_writes);
         throw std::runtime_error("counter mismatch");
       }
-    }
 
-    // Exchange semaphore keys with all peers
-    {
-      communicator comm_sem(&controller, rank, size);
+      // --------------------------------------------------
+      // Post semaphore writes to signal all benchmark writes are complete
+      // --------------------------------------------------
       for (std::size_t r = 0; r < size; ++r)
       {
         if (r == rank) { continue; }
-        comm_sem.recv(semaphores[r].remote_key_info, sizeof(rma_key_info),
-            static_cast<rank_type>(r), static_cast<tag_type>(2000 + r), nullptr);
-        comm_sem.send(semaphores[r].local_key_info, sizeof(rma_key_info), static_cast<rank_type>(r),
-            static_cast<tag_type>(2000 + rank), nullptr);
-      }
-      wait_for_msg_completions(controller);
-    }
-
-    // Post semaphore writes to signal all benchmark writes are complete
-    {
-      communicator comm_sem(&controller, rank, size);
-      for (std::size_t r = 0; r < size; ++r)
-      {
-        if (r == rank) { continue; }
-        auto* sem_remote_key_info = static_cast<rma_key_info*>(semaphores[r].remote_key_info.get());
-        uint64_t sem_remote_addr = 0;
-        *(int32_t*) semaphores[r].local_buffer.get() = 1;
-        comm_sem.write(semaphores[r].local_buffer, sizeof(int32_t), static_cast<rank_type>(r),
-            sem_remote_addr, sem_remote_key_info->remote_key, nullptr);
+        semaphores.signal_completion(bitshift, r);
       }
       uint32_t const write_target = static_cast<uint32_t>(controller.writes_posted_);
       wait_for_write_completions(controller, write_target);
-    }
 
-    // Wait for all remote peers to set our local semaphore buffer
-    for (std::size_t r = 0; r < size; ++r)
-    {
-      if (r == rank) { continue; }
-      auto* sem_local_ptr = reinterpret_cast<int32_t volatile*>(semaphores[r].local_buffer.get());
-      while (*sem_local_ptr != 1) { std::this_thread::sleep_for(std::chrono::microseconds(10)); }
+      // Wait for all remote peers to set our local semaphore buffer
+      while (true)
+      {
+        bool all_done = true;
+        for (std::size_t r = 0; r < size; ++r)
+        {
+          if (r == rank) { continue; }
+          auto val = semaphores.read_completion(r);
+          if (val != bitshift)
+          {
+            LIBFATBAT_ERROR(rdmawritebench_log,
+                "{:<20} rank:{:02} has not yet received completion signal {} from rank {}",
+                "waiting for peers", rank, bitshift, r);
+            all_done = false;
+            break;
+          }
+        }
+        if (all_done) { break; }
+        std::this_thread::sleep_for(std::chrono::microseconds(10));
+      }
     }
   }    // poller_guard scope ends here
 
@@ -323,12 +311,6 @@ int main(int argc, char** argv)
   for (auto& buf : target_keys) { heap.free(buf); }
   for (auto& buf : source_buffers) { heap.free(buf); }
   for (auto& buf : remote_keys) { heap.free(buf); }
-  for (auto& sem : semaphores)
-  {
-    heap.free(sem.local_buffer);
-    heap.free(sem.local_key_info);
-    heap.free(sem.remote_key_info);
-  }
 
   return 0;
 }

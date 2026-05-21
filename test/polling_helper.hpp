@@ -7,6 +7,8 @@
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+#pragma once
+
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -54,7 +56,8 @@ struct poller_guard
   std::vector<std::thread> threads_;
   std::size_t rank_ = 0;
 
-  explicit poller_guard(test_controller* ctx, std::size_t rank, std::size_t num_threads = 2)
+  explicit poller_guard(
+      test_controller* ctx, std::size_t rank = std::size_t(-1), std::size_t num_threads = 2)
     : rank_(rank)
   {
     threads_.reserve(num_threads);

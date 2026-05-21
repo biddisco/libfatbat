@@ -1687,15 +1687,6 @@ public:
             OperationContext* handler = reinterpret_cast<OperationContext*>(entry[i].op_context);
             processed += handler->handle_rma_read_completion();
           }
-          else if (entry[i].flags == FI_RMA)
-          {
-            ++reads_complete_;
-            LIBFATBAT_DEBUG(bctrl_log,
-                "{:<20} entry({:02}), Received txcq RMA completion, context {:p}", "Completion", i,
-                (void*) (entry[i].op_context));
-            OperationContext* handler = reinterpret_cast<OperationContext*>(entry[i].op_context);
-            processed += handler->handle_rma_read_completion();
-          }
           else if ((entry[i].flags & (FI_WRITE | FI_RMA)) == (FI_WRITE | FI_RMA))
           {
             ++writes_complete_;

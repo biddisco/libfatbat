@@ -74,8 +74,6 @@ int main(int argc, char** argv)
   poller_guard pg(&controller, rank);
 
   constexpr int32_t message_size = 1024 * 1024 * 16;
-  constexpr std::size_t footer_size = sizeof(int32_t);
-  constexpr std::size_t target_buffer_size = message_size + footer_size;
   constexpr std::size_t iterations = 5;
 
   std::vector<memory_context::heap_type::pointer> rma_write_keys;
@@ -83,20 +81,15 @@ int main(int argc, char** argv)
   std::vector<memory_context::heap_type::pointer> local_source_keys;
   std::vector<memory_context::heap_type::pointer> local_source_buffers;
 
-  // Semaphore structure for remote completion notification
-  using semaphore_type = semaphore_info<memory_context::heap_type>;
-  std::vector<semaphore_type> semaphores(size);
-
   for (int i = 0; i < static_cast<int>(size); i++)
   {
-    auto target_buffer = heap.allocate(target_buffer_size, 0);
-    std::fill((uint8_t*) target_buffer.get(), (uint8_t*) target_buffer.get() + target_buffer_size,
+    auto target_buffer = heap.allocate(message_size, 0);
+    std::fill((uint8_t*) target_buffer.get(), (uint8_t*) target_buffer.get() + message_size,
         uint8_t(0xEE));
     rma_target_buffers.push_back(target_buffer);
 
     auto remote_key_buffer = heap.allocate(sizeof(rma_key_info), 0);
     rma_write_keys.push_back(remote_key_buffer);
-
     auto source_buffer = heap.allocate(message_size, 0);
     std::fill((uint8_t*) source_buffer.get(), (uint8_t*) source_buffer.get() + message_size,
         static_cast<uint8_t>(
@@ -107,23 +100,10 @@ int main(int argc, char** argv)
     rma_key_info info{
         .address = target_buffer.handle().get_address(),
         .remote_key = (uint64_t) target_buffer.handle().get_remote_key(),
-        .length = target_buffer_size,
+        .length = message_size,
     };
     std::memcpy(source_key.get(), &info, sizeof(rma_key_info));
     local_source_keys.push_back(source_key);
-
-    // Semaphore: allocate local buffer, key info buffer for local buffer, and space for remote key info
-    semaphores[i].local_buffer = heap.allocate(sizeof(int32_t), 0);
-    semaphores[i].local_key_info = heap.allocate(sizeof(rma_key_info), 0);
-    semaphores[i].remote_key_info = heap.allocate(sizeof(rma_key_info), 0);
-
-    // Fill key info for our semaphore buffer
-    rma_key_info sem_info{
-        .address = semaphores[i].local_buffer.handle().get_address(),
-        .remote_key = (uint64_t) semaphores[i].local_buffer.handle().get_remote_key(),
-        .length = sizeof(int32_t),
-    };
-    std::memcpy(semaphores[i].local_key_info.get(), &sem_info, sizeof(rma_key_info));
   }
 
   LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {}", "initialized", rank);
@@ -134,10 +114,6 @@ int main(int argc, char** argv)
 
     comm.recv(rma_write_keys[r], sizeof(rma_key_info), r, r, nullptr);
     comm.send(local_source_keys[r], sizeof(rma_key_info), r, rank, nullptr);
-
-    // Semaphore: exchange key info for semaphore buffers
-    comm.recv(semaphores[r].remote_key_info, sizeof(rma_key_info), r, 1000 + r, nullptr);
-    comm.send(semaphores[r].local_key_info, sizeof(rma_key_info), r, 1000 + rank, nullptr);
   }
 
   wait_for_msg_completions(controller);
@@ -146,84 +122,99 @@ int main(int argc, char** argv)
 
   for (std::size_t it = 0; it < iterations; ++it)
   {
+    bool const use_relative_remote_addr = controller.use_relative_remote_addr();
+
+    // Clear target buffers for this iteration
     for (int r = 0; r < static_cast<int>(size); ++r)
     {
       if (rank == static_cast<size_t>(r)) continue;
       std::fill((uint8_t*) rma_target_buffers[r].get(),
-          (uint8_t*) rma_target_buffers[r].get() + target_buffer_size, uint8_t(0xEE));
+          (uint8_t*) rma_target_buffers[r].get() + message_size, uint8_t(0xEE));
     }
 
+    // Post data writes to all peers (not self)
     for (int r = 0; r < static_cast<int>(size); ++r)
     {
       if (rank == static_cast<size_t>(r)) continue;
-
       auto* remote_key_info = static_cast<rma_key_info*>(rma_write_keys[r].get());
-      if (remote_key_info->length < static_cast<uint64_t>(target_buffer_size))
+      if (remote_key_info->length < static_cast<uint64_t>(message_size))
       {
         LIBFATBAT_ERROR(rdmawritetest_log, "rank {} got invalid RMA key length {} from rank {}",
             rank, remote_key_info->length, r);
         return EXIT_FAILURE;
       }
-
-      // With FI_MR_VIRT_ADDR disabled, use offset 0 for provider-relative addressing.
-      uint64_t remote_addr = 0;
+        uint64_t remote_addr =
+          use_relative_remote_addr ? uint64_t(0) : (uint64_t) remote_key_info->address;
       comm.write(local_source_buffers[r], message_size, r, remote_addr, remote_key_info->remote_key,
           nullptr);
       LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} -> rank {} key {:#08x}", "fi_write posted",
           rank, r, remote_key_info->remote_key);
     }
 
+    // Wait for all data writes to complete
     uint32_t const data_write_target = static_cast<uint32_t>(controller.writes_posted_);
     wait_for_write_completions(controller, data_write_target);
     LIBFATBAT_INFO(
         rdmawritetest_log, "{:<20} rank {} iteration {}", "data writes complete", rank, it);
 
-    // Post a final footer write inside the peer's existing target buffer.
-    for (int r = 0; r < static_cast<int>(size); ++r)
+    // Busy-wait until all local target buffers contain the expected peer data.
+    auto const wait_start = std::chrono::steady_clock::now();
+    while (true)
     {
-      if (rank == static_cast<size_t>(r)) continue;
-      // Use the semaphore's own remote key info and buffer
-      auto* sem_remote_key_info = static_cast<rma_key_info*>(semaphores[r].remote_key_info.get());
-      uint64_t sem_remote_addr = 0;    // Always offset 0 in the semaphore buffer
-      *(int32_t*) semaphores[r].local_buffer.get() = 1;
-      comm.write(semaphores[r].local_buffer, sizeof(int32_t), r, sem_remote_addr,
-          sem_remote_key_info->remote_key, nullptr);
-      LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} -> rank {} semaphore write",
-          "semaphore write", rank, r);
-    }
-
-    // Wait for the semaphore writes to complete locally after they have been accepted.
-    uint32_t const write_target = static_cast<uint32_t>(controller.writes_posted_);
-    wait_for_write_completions(controller, write_target);
-    LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} iteration {}", "writes complete", rank, it);
-
-    // Wait for all remote peers to set our local semaphore buffer.
-    for (int r = 0; r < static_cast<int>(size); ++r)
-    {
-      if (rank == static_cast<size_t>(r)) continue;
-      auto* sem_local_ptr = reinterpret_cast<int32_t volatile*>(semaphores[r].local_buffer.get());
-      while (*sem_local_ptr != 1)
+      bool all = true;
+      for (int r = 0; r < static_cast<int>(size); ++r)
       {
-        comm.progress();
-        std::this_thread::sleep_for(std::chrono::microseconds(10));
+        if (r == static_cast<int>(rank)) continue;
+        auto* data = static_cast<uint8_t const*>(rma_target_buffers[r].get());
+        uint8_t const expected = static_cast<uint8_t>(r + 17);
+        bool buffer_ready = true;
+        for (std::size_t i = 0; i < static_cast<std::size_t>(message_size); ++i)
+        {
+          if (data[i] != expected)
+          {
+            buffer_ready = false;
+            break;
+          }
+        }
+        if (!buffer_ready)
+        {
+          all = false;
+          break;
+        }
       }
-      *sem_local_ptr = 0;
-      LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} saw remote semaphore from {}",
-          "semaphore seen", rank, r);
+      if (all) break;
+      if (std::chrono::steady_clock::now() - wait_start > std::chrono::seconds(10))
+      {
+        LIBFATBAT_ERROR(rdmawritetest_log, "rank {} timeout waiting for target buffers", rank);
+        for (int r = 0; r < static_cast<int>(size); ++r)
+        {
+          if (r == static_cast<int>(rank)) continue;
+          auto* data = static_cast<uint8_t const*>(rma_target_buffers[r].get());
+          uint8_t const expected = static_cast<uint8_t>(r + 17);
+          std::size_t mismatch = 0;
+          for (; mismatch < static_cast<std::size_t>(message_size); ++mismatch)
+          {
+            if (data[mismatch] != expected) { break; }
+          }
+          LIBFATBAT_ERROR(rdmawritetest_log,
+              "  buffer {} first mismatch at {} value {} expected {}", r, mismatch,
+              mismatch < static_cast<std::size_t>(message_size) ? data[mismatch] : expected,
+              expected);
+        }
+        return EXIT_FAILURE;
+      }
+      std::this_thread::sleep_for(std::chrono::microseconds(10));
     }
+    LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} all target buffers updated for iter {}",
+        "buffer complete", rank, it);
 
-    // Collective barrier: ensures all ranks have at least TX-completed their writes.
-    // On SHM (and similar providers), TX completion == delivery, so data is visible here.
-    pmi.fence();
-
+    // Validate buffers
     for (int r = 0; r < static_cast<int>(size); ++r)
     {
       if (rank == static_cast<size_t>(r)) continue;
-      // Validate that our buffer contains the sender's value (r)
       verify_buffer(rma_target_buffers[r].get(), message_size, rank, static_cast<uint8_t>(r + 17),
           "write validation", r, 0);
     }
-
     LIBFATBAT_INFO(rdmawritetest_log, "{:<20} rank {} iteration {}", "verify complete", rank, it);
     pmi.fence();
   }
@@ -234,12 +225,5 @@ int main(int argc, char** argv)
   for (auto& buf : rma_target_buffers) { heap.free(buf); }
   for (auto& buf : local_source_keys) { heap.free(buf); }
   for (auto& buf : local_source_buffers) { heap.free(buf); }
-  for (auto& sem : semaphores)
-  {
-    heap.free(sem.local_buffer);
-    heap.free(sem.local_key_info);
-    heap.free(sem.remote_key_info);
-  }
-
   return 0;
 }
