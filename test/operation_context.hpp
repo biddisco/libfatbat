@@ -27,6 +27,19 @@ MAKE_LOGGER(ctxt_log, "Context")
 // --------------------------------------------------------------------
 struct operation_context : public libfatbat::operation_context_base<operation_context>
 {
+  static operation_context* acquire(request_callback_type&& cb)
+  {
+    operation_context* request = acquire_from_pool();
+    request->m_callback = std::move(cb);
+    return request;
+  }
+
+  inline void recycle()
+  {
+    m_callback = nullptr;
+    recycle_to_pool(this);
+  }
+
   // when the operation completes, this callback is invoked to trigger user defined actions
   request_callback_type m_callback;
 
@@ -51,6 +64,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   {
     LIBFATBAT_SCOPE(ctxt_log, "{} {}", (void*) (this), __func__);
     invoke_cb();
+    recycle();
     return 1;
   }
 
@@ -60,6 +74,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   {
     LIBFATBAT_SCOPE(ctxt_log, "{} {} user_data {}", (void*) (this), __func__, user_data);
     invoke_cb();
+    recycle();
     return 1;
   }
 
@@ -69,6 +84,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   {
     LIBFATBAT_SCOPE(ctxt_log, "{} {} user_data {}", (void*) (this), __func__, user_data);
     invoke_cb();
+    recycle();
     return 1;
   }
 
@@ -78,6 +94,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   {
     LIBFATBAT_SCOPE(ctxt_log, "{} {}", (void*) (this), __func__);
     invoke_cb();
+    recycle();
     return 1;
   }
 
@@ -87,6 +104,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
   {
     LIBFATBAT_SCOPE(ctxt_log, "{} {}", (void*) (this), __func__);
     invoke_cb();
+    recycle();
     return 1;
   }
 };

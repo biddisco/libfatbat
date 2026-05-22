@@ -112,11 +112,6 @@ struct communicator
   {
     m_tx_endpoint = m_controller->get_tx_endpoint();
     m_rx_endpoint = m_controller->get_rx_endpoint();
-    // fill cache with empty request objects taken from the heap so that we can avoid allocations at runtime
-    for (int i = 0; i < 2 * max_callback_queue_size_; ++i)
-    {
-      queue_cache.push(new operation_context());
-    }
   }
 
   // --------------------------------------------------------------------
@@ -128,14 +123,7 @@ struct communicator
   // --------------------------------------------------------------------
   inline operation_context* make_operation_context(request_callback_type&& cb)
   {
-    operation_context* request;
-    while (!queue_cache.pop(request))
-    {
-      LIBFATBAT_ERROR(
-          comm_log, "{:<20} {}", "make_operation_context", "unable to get request from cache");
-    }
-    request->m_callback = std::move(cb);
-    return request;
+    return operation_context::acquire(std::move(cb));
   }
 
   // --------------------------------------------------------------------
@@ -540,6 +528,8 @@ struct communicator
   }
 
   // --------------------------------------------------------------------
+  // these queues were added for the ghex/oomph framework and should be abstracted into
+  // a more general callback management system, they are unused currently.
   void clear_callback_queues()
   {
     // work through ready callbacks, which were pushed to the queue

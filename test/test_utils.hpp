@@ -59,6 +59,40 @@ inline void wait_for_write_completions(test_controller& controller, uint32_t tar
 }
 
 // ------------------------------------------------------------------
+// Throttle outstanding write operations to avoid overfilling provider/NIC queues.
+inline void throttle_writes_inflight(test_controller& controller, uint32_t max_inflight)
+{
+  while (((uint32_t) controller.writes_posted_ - (uint32_t) controller.writes_complete_) >=
+      max_inflight)
+  {
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+}
+
+// ------------------------------------------------------------------
+// Throttle outstanding read operations to avoid overfilling provider/NIC queues.
+inline void throttle_reads_inflight(test_controller& controller, uint32_t max_inflight)
+{
+  while (
+      ((uint32_t) controller.reads_posted_ - (uint32_t) controller.reads_complete_) >= max_inflight)
+  {
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+}
+
+// ------------------------------------------------------------------
+// Throttle outstanding send/recv operations in ping-pong style tests.
+inline void throttle_msgs_inflight(test_controller& controller, uint32_t max_inflight)
+{
+  while (((uint32_t) controller.sends_posted_ - (uint32_t) controller.sends_complete_) >=
+          max_inflight ||
+      ((uint32_t) controller.recvs_posted_ - (uint32_t) controller.recvs_complete_) >= max_inflight)
+  {
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+}
+
+// ------------------------------------------------------------------
 // Wait until an atomic counter reaches at least the requested target.
 inline void wait_for_counter(std::atomic<uint32_t> const& counter, uint32_t target)
 {

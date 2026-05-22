@@ -111,8 +111,7 @@ int main(int argc, char** argv)
       std::size_t const msg_size = (std::size_t{1} << bitshift);
       rank_type const peer = static_cast<rank_type>(1 - rank);
       std::size_t const warmup_iterations = 1;
-      std::size_t const max_chunk =
-          static_cast<std::size_t>(communicator::max_callback_queue_size_);
+        uint32_t const max_inflight_msgs = 128;
 
       auto send_buffer = heap.allocate(msg_size, 0);
       auto recv_buffer = heap.allocate(msg_size, 0);
@@ -123,20 +122,13 @@ int main(int argc, char** argv)
           static_cast<uint8_t>(0xff));
 
       auto post_send_recv_iterations = [&](std::size_t num_iterations) {
-        // The communicator request cache is finite and not recycled on this path,
-        // so run in bounded chunks using a fresh communicator per chunk.
-        std::size_t remaining = num_iterations;
-        while (remaining > 0)
+        communicator comm(&controller, rank, size);
+        for (std::size_t i = 0; i < num_iterations; ++i)
         {
-          std::size_t const chunk = std::min(remaining, max_chunk);
-          communicator comm(&controller, rank, size);
-          for (std::size_t i = 0; i < chunk; ++i)
-          {
-            uint32_t const tag = base_tag;
-            comm.recv(recv_buffer, msg_size, fi_addr_t(peer), tag, nullptr);
-            comm.send(send_buffer, msg_size, fi_addr_t(peer), tag, nullptr);
-          }
-          remaining -= chunk;
+          throttle_msgs_inflight(controller, max_inflight_msgs);
+          uint32_t const tag = base_tag;
+          comm.recv(recv_buffer, msg_size, fi_addr_t(peer), tag, nullptr);
+          comm.send(send_buffer, msg_size, fi_addr_t(peer), tag, nullptr);
         }
       };
 

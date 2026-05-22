@@ -193,37 +193,30 @@ int main(int argc, char** argv)
       std::size_t const peers = size - 1;
       std::size_t const expected_writes = iterations * peers;
       std::size_t const warmup_iterations = 1;
-      std::size_t const max_chunk =
-          static_cast<std::size_t>(communicator::max_callback_queue_size_ / peers);
-      std::size_t const chunk_limit = std::max<std::size_t>(1, max_chunk);
+      uint32_t const max_inflight_writes = 128;
+      communicator comm_post(&controller, rank, size);
 
       auto post_write_iterations = [&](std::size_t num_iterations) {
-        std::size_t remaining = num_iterations;
-        while (remaining > 0)
+        for (std::size_t i = 0; i < num_iterations; ++i)
         {
-          std::size_t const chunk = std::min(remaining, chunk_limit);
-          communicator comm_chunk(&controller, rank, size);
-          for (std::size_t i = 0; i < chunk; ++i)
+          for (std::size_t r = 0; r < size; ++r)
           {
-            for (std::size_t r = 0; r < size; ++r)
+            if (r == rank) { continue; }
+
+            auto const* remote_key_info = static_cast<rma_key_info*>(remote_keys[r].get());
+            if (remote_key_info->length < msg_size)
             {
-              if (r == rank) { continue; }
-
-              auto const* remote_key_info = static_cast<rma_key_info*>(remote_keys[r].get());
-              if (remote_key_info->length < msg_size)
-              {
-                LIBFATBAT_ERROR(rdmawritebench_log,
-                    "rank {} remote key length {} from rank {} is smaller than msg_size {}", rank,
-                    remote_key_info->length, r, msg_size);
-                throw std::runtime_error("invalid RMA key length");
-              }
-
-                uint64_t const remote_addr = remote_rma_addr_value(controller, *remote_key_info);
-              comm_chunk.write(source_buffers[r], msg_size, static_cast<rank_type>(r), remote_addr,
-                  remote_key_info->remote_key, nullptr);
+              LIBFATBAT_ERROR(rdmawritebench_log,
+                  "rank {} remote key length {} from rank {} is smaller than msg_size {}", rank,
+                  remote_key_info->length, r, msg_size);
+              throw std::runtime_error("invalid RMA key length");
             }
+
+            throttle_writes_inflight(controller, max_inflight_writes);
+            uint64_t const remote_addr = remote_rma_addr_value(controller, *remote_key_info);
+            comm_post.write(source_buffers[r], msg_size, static_cast<rank_type>(r), remote_addr,
+                remote_key_info->remote_key, nullptr);
           }
-          remaining -= chunk;
         }
       };
 
@@ -298,9 +291,6 @@ int main(int argc, char** argv)
           auto val = semaphores.read_completion(r);
           if (val != bitshift)
           {
-            LIBFATBAT_ERROR(rdmawritebench_log,
-                "{:<20} rank:{:02} has not yet received completion signal {} from rank {}",
-                "waiting for peers", rank, bitshift, r);
             all_done = false;
             break;
           }
