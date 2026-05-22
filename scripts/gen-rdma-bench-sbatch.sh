@@ -21,7 +21,7 @@ Optional:
   --iterations I             Iterations passed to benchmark via -i (default: 10000)
   --gpu                      Pass --gpu to the benchmark and tag outputs as GPU runs
   --gpu-device ID            GPU device id passed with --gpu-device (default: 0)
-  --wrapper PATH             Wrapper script path (default: $HOME/src/opal/ippl/wrapper-mpi-opal.sh)
+  --wrapper PATH             Wrapper script path (default: wrapper-mpi-binding.sh)
   --bin-dir PATH             Directory containing benchmark binaries
                              (default: /capstor/scratch/cscs/biddisco/build-daint/libfatbat/bin)
   --out-dir PATH             Output directory for generated .sbatch files
@@ -42,7 +42,7 @@ USAGE
 MAX_NODES=""
 BENCHMARK=""
 ITERATIONS="10000"
-WRAPPER="${HOME}/src/opal/ippl/wrapper-mpi-opal.sh"
+WRAPPER="wrapper-mpi-binding.sh"
 BIN_DIR="/capstor/scratch/cscs/biddisco/build-daint/libfatbat/bin"
 OUT_DIR="scripts/generated-bench"
 SBATCH_TIME="00:20:00"
@@ -135,6 +135,11 @@ if ! [[ "$GPU_DEVICE" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [[ "$WRAPPER" != /* ]]; then
+  WRAPPER="${SCRIPT_DIR}/${WRAPPER}"
+fi
+
 case "$BENCHMARK" in
   read)
     BENCH_BIN_NAME="rdma-read-benchmark"
@@ -189,6 +194,7 @@ for nodes in "${node_counts[@]}"; do
 set -euo pipefail
 
 export IPC_ON=0
+export FI_CXI_ENABLE_WRITEDATA=1
 
 NODES=${nodes}
 ITERATIONS=${ITERATIONS}
@@ -209,7 +215,7 @@ if [[ ! -x "\${BENCH_BIN}" ]]; then
 fi
 
 echo "=== Benchmark start: benchmark=${BENCHMARK} nodes=\${NODES} ==="
-for RPN in 1 2 4; do
+for RPN in 4 2 1; do
   TASKS=\$(( NODES * RPN ))
   echo "--- Run: NODES=\${NODES} RPN=\${RPN} TASKS=\${TASKS} GPU=\${GPU_MODE} GPU_DEVICE=\${GPU_DEVICE} ---"
 
