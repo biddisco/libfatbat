@@ -40,10 +40,8 @@ mark_as_advanced(PMIx_ROOT PMIx_LIBRARIES PMIx_INCLUDE_DIRS)
 
 if(NOT TARGET PMIX::pmix AND PMIx_FOUND)
   add_library(PMIX::pmix SHARED IMPORTED)
-  set_target_properties(
-    PMIX::pmix PROPERTIES IMPORTED_LOCATION ${PMIx_LIBRARIES} INTERFACE_INCLUDE_DIRECTORIES
-                                                              ${PMIx_INCLUDE_DIRS}
-  )
+  set_target_properties(PMIX::pmix PROPERTIES IMPORTED_LOCATION "${PMIx_LIBRARIES}")
+  set_target_properties(PMIX::pmix PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${PMIx_INCLUDE_DIRS}")
   target_include_directories(PMIX::pmix INTERFACE ${PMIx_INCLUDE_DIRS})
   set(PMI_LIBRARY_TARGET PMIX::pmix)
 endif()
