@@ -123,7 +123,7 @@ int main(int argc, char** argv)
     // --------------------------------------------------
     // for each rank, allocate RMA buffers
     // --------------------------------------------------
-    for (int i = 0; i < size; i++)
+    for (std::size_t i = 0; i < size; i++)
     {
       // this is just a flat array of memory for reading large data blocks into
         #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
@@ -186,7 +186,7 @@ int main(int argc, char** argv)
     for (std::size_t iterations = 0; iterations < 5; ++iterations)
     {
       // for each rank, do an rma read
-      for (int r = 0; r < size; ++r)
+      for (std::size_t r = 0; r < size; ++r)
       {
         if (rank != r)    // we don't read from ourselves
         {
@@ -230,7 +230,7 @@ int main(int argc, char** argv)
 
       if (use_gpu)
       {
-        for (int r = 0; r < size; ++r)
+        for (std::size_t r = 0; r < size; ++r)
         {
           if (rank == static_cast<std::size_t>(r)) continue;
 #ifdef LIBFATBAT_HAVE_GPU_SUPPORT

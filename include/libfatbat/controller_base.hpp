@@ -1201,7 +1201,7 @@ public:
 #endif
 
     // --------------------------------------------------------------------
-    struct fid_ep* new_endpoint_active(struct fid_domain* domain, struct fi_info* info, bool tx)
+    struct fid_ep* new_endpoint_active(struct fid_domain* domain, struct fi_info* info, bool /*tx*/)
     {
       // don't allow multiple threads to call endpoint create at the same time
       scoped_lock lock(controller_mutex_);
@@ -1408,7 +1408,7 @@ public:
 
       LIBFATBAT_DEBUG(bctrl_log, "{:<20} {} {}", "Binding Counter to", (void*) (endpoint), type);
       constexpr uint64_t kOfiBindFlagsCntr = FI_WRITE | FI_TRANSMIT;
-      ret = fi_ep_bind(get_tx_endpoint().get_ep(), &txCntr_->fid, kOfiBindFlagsCntr);
+      ret = fi_ep_bind(endpoint, &txCntr_->fid, kOfiBindFlagsCntr);
       if (ret) throw libfatbat::fabric_error(ret, "bind txCntr");
     }
 

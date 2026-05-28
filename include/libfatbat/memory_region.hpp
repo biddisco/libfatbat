@@ -96,7 +96,6 @@ namespace libfatbat {
         LIBFATBAT_SCOPE(
             memrgn_log, "{:<20} {} {:#10x} {:05}", "device memory", buf, len, device_id);
         attr.device.cuda = device_id;
-        int handle = device_id;
 # if defined(LIBFATBAT_HAVE_CUDA)
         attr.iface = FI_HMEM_CUDA;
 # elif defined(LIBFATBAT_HAVE_HIP)

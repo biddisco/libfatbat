@@ -30,7 +30,7 @@ MAKE_LOGGER(kvtest_log, "KVTest")
     }                                                                                              \
   }
 
-int main(int argc, char** argv)
+int main(int /*argc*/, char** /*argv*/)
 {
   pmix_proc_t myproc;    // local process info
   pmix_proc_t proc;      // other process info

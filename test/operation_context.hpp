@@ -70,7 +70,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
 
   // --------------------------------------------------------------------
   // Called when a tagged recv completes
-  inline int handle_tagged_recv_completion_impl(void* user_data)
+  inline int handle_tagged_recv_completion_impl([[maybe_unused]] void* user_data)
   {
     LIBFATBAT_SCOPE(ctxt_log, "{} {} user_data {}", (void*) (this), __func__, user_data);
     invoke_cb();
@@ -80,7 +80,7 @@ struct operation_context : public libfatbat::operation_context_base<operation_co
 
   // --------------------------------------------------------------------
   // Called when a tagged send completes
-  inline int handle_tagged_send_completion_impl(void* user_data)
+  inline int handle_tagged_send_completion_impl([[maybe_unused]] void* user_data)
   {
     LIBFATBAT_SCOPE(ctxt_log, "{} {} user_data {}", (void*) (this), __func__, user_data);
     invoke_cb();

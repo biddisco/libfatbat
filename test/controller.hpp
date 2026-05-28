@@ -35,7 +35,7 @@ class test_controller : public libfatbat::controller_base<test_controller, opera
 
   // --------------------------------------------------------------------
   void initialize_derived(
-      std::string const& provider, size_t rank, size_t size, std::size_t threads)
+      std::string const& /*provider*/, size_t /*rank*/, size_t /*size*/, std::size_t /*threads*/)
   {
   }
 

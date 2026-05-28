@@ -111,7 +111,7 @@ struct pmi_helper
     PMI2_KVS_Fence();
 
     // read libfabric data for all nodes and insert into our address vector
-    for (int i = 0; i < size; ++i)
+    for (std::size_t i = 0; i < size; ++i)
     {
       locality new_locality;
       if (i != rank)

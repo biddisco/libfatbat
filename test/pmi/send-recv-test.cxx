@@ -110,7 +110,7 @@ int main(int argc, char** argv)
           static_cast<uint8_t>(0xff));
 
       // for each rank, do a send/recv
-      for (int remote_rank = 0; remote_rank < size; ++remote_rank)
+      for (std::size_t remote_rank = 0; remote_rank < size; ++remote_rank)
       {
         if (rank != remote_rank)    // we don't send/recv to ourself
         {
