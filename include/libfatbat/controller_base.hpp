@@ -548,7 +548,6 @@ public:
       bind_address_vector_to_endpoint(ep_rx, av);
 
       // create a completion queue for the rx endpoint
-      info->rx_attr->op_flags |= FI_COMPLETION;
       auto rx_cq = create_completion_queue(domain, info->rx_attr->size, "rx");
 
       // bind CQ to endpoint
@@ -627,7 +626,6 @@ public:
         auto ep_tx = new_endpoint_active(fabric_domain_, fabric_info_, true);
 
         // create a completion queue for tx endpoint
-        fabric_info_->tx_attr->op_flags |= (FI_INJECT_COMPLETE | FI_COMPLETION);
         auto tx_cq =
             create_completion_queue(fabric_domain_, fabric_info_->tx_attr->size, "tx multiple");
 
@@ -871,13 +869,6 @@ public:
 
     // --------------------------------------------------------------------
     bool supports_write_data() { return supportsWriteData_; }
-
-    // --------------------------------------------------------------------
-    bool supports_delivery_complete() const
-    {
-      if (fabric_info_ == nullptr) { return false; }
-      return (fabric_info_->caps & FI_DELIVERY_COMPLETE) != 0;
-    }
 
     // --------------------------------------------------------------------
     // Called by poll_recv_queue_default when a remote fi_writedata CQ event arrives.
@@ -1309,7 +1300,6 @@ public:
               "threadlocal");
 
           // create a completion queue for tx endpoint
-          fabric_info_->tx_attr->op_flags |= (FI_INJECT_COMPLETE | FI_COMPLETION);
           auto tx_cq = create_completion_queue(
               fabric_domain_, fabric_info_->tx_attr->size, "tx threadlocal");
 
@@ -1387,7 +1377,6 @@ public:
     fid_cq* bind_tx_queue_to_rx_endpoint(struct fi_info* info, struct fid_ep* ep)
     {
       LIBFATBAT_SCOPE(bctrl_log, "{} {}", (void*) (this), __func__);
-      info->tx_attr->op_flags |= (FI_INJECT_COMPLETE | FI_COMPLETION);
       fid_cq* tx_cq = create_completion_queue(fabric_domain_, info->tx_attr->size, "tx->rx");
       // shared send/recv endpoint - bind send cq to the recv endpoint
       bind_queue_to_endpoint(ep, tx_cq, FI_TRANSMIT, "tx->rx bug fix");

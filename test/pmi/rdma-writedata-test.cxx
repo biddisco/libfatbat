@@ -49,9 +49,9 @@ int main(int argc, char** argv)
 
   namespace po = boost::program_options;
   po::options_description desc("Options");
-  desc.add_options()("help,h", "Show help")("debug", "Enable debug mode")("gpu",
-      "Use GPU memory for writedata source buffers")("gpu-device",
-      po::value<int>()->default_value(0), "GPU device id used when --gpu is set");
+  desc.add_options()("help,h", "Show help")("debug", "Enable debug mode")(
+      "gpu", "Use GPU memory for writedata source buffers")(
+      "gpu-device", po::value<int>()->default_value(0), "GPU device id used when --gpu is set");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -115,13 +115,19 @@ int main(int argc, char** argv)
   constexpr int32_t message_size = 1024 * 1024 * 16;
   constexpr std::size_t iterations = 5;
 
-  std::vector<memory_context::heap_type::pointer> rma_write_keys;
+  // other ranks will write to these target buffers using fi_writedata
   std::vector<memory_context::heap_type::pointer> rma_target_buffers;
-  std::vector<memory_context::heap_type::pointer> local_source_keys;
+  std::vector<memory_context::heap_type::pointer> rma_write_keys;
+  // we will use these local source buffers as the source for fi_writedata operations
   std::vector<memory_context::heap_type::pointer> local_source_buffers;
+  std::vector<memory_context::heap_type::pointer> local_source_keys;
 
   for (int i = 0; i < static_cast<int>(size); i++)
   {
+    // --------------------------------------------------------------------------
+    // allocate a target buffer for each peer to write into,
+    // and a corresponding RMA key buffer to exchange the address/key info with the peer.
+    // --------------------------------------------------------------------------
     auto target_buffer = heap.allocate(message_size, 0);
     std::fill((uint8_t*) target_buffer.get(), (uint8_t*) target_buffer.get() + message_size,
         uint8_t(0xEE));
@@ -130,22 +136,32 @@ int main(int argc, char** argv)
     auto remote_key_buffer = heap.allocate(sizeof(rma_key_info), 0);
     rma_write_keys.push_back(remote_key_buffer);
 
-    #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
-    auto source_buffer = use_gpu ? heap.allocate(message_size, 0, gpu_device) : heap.allocate(message_size, 0);
-    #else
+    // --------------------------------------------------------------------------
+    // allocate a source buffer (per peer) to write from,
+    // and a corresponding key buffer to hold the target buffer info for the peer's fi_writedata operation.
+    // --------------------------------------------------------------------------
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+    auto source_buffer =
+        use_gpu ? heap.allocate(message_size, 0, gpu_device) : heap.allocate(message_size, 0);
+#else
     auto source_buffer = heap.allocate(message_size, 0);
-    #endif
+#endif
+
+    // --------------------------------------------------------------------------
+    // fill the source buffer with the sender's rank for easy verification on the receiver side
+    // --------------------------------------------------------------------------
     std::fill((uint8_t*) source_buffer.get(), (uint8_t*) source_buffer.get() + message_size,
         static_cast<uint8_t>(rank));
-  #ifdef LIBFATBAT_HAVE_GPU_SUPPORT
+#ifdef LIBFATBAT_HAVE_GPU_SUPPORT
     if (use_gpu && source_buffer.on_device())
     {
       hwmalloc::memcpy_to_device(
-        source_buffer.device_ptr(), source_buffer.get(), static_cast<std::size_t>(message_size));
+          source_buffer.device_ptr(), source_buffer.get(), static_cast<std::size_t>(message_size));
     }
-  #endif
+#endif
     local_source_buffers.push_back(source_buffer);
 
+    // rma key info struct to exchange the target buffer address/key with the peer
     auto source_key = heap.allocate(sizeof(rma_key_info), 0);
     rma_key_info info{
         .address = target_buffer.handle().get_address(),
@@ -157,11 +173,11 @@ int main(int argc, char** argv)
   }
   LIBFATBAT_INFO(rdmawritedatatest_log, "{:<20} rank {}", "initialized", rank);
 
+  // each remote rank that is writing into one of our buffers, needs the rma key info for that buffer,
+  // we need the rma key info of remote buffers we are writing into
   exchange_rma_keys(comm, controller, local_source_keys, rma_write_keys);
   LIBFATBAT_INFO(rdmawritedatatest_log, "{:<20} rank {}", "key exchange complete", rank);
   pmi.fence();
-
-  bool const supports_delivery_complete = controller.supports_delivery_complete();
 
   std::size_t const peers = size - 1;
 
@@ -173,6 +189,8 @@ int main(int argc, char** argv)
     std::atomic<uint32_t> remote_cq_data_processed{0};
     uint64_t const expected_iter = it + 1;
 
+    // Install a remote CQ data callback to validate the data received from fi_writedata
+    // completions and track which peers have completed.
     remote_cq_data_callback_scope callback_scope(controller, [&](uint64_t data) {
       uint64_t const sender = (data >> 32) & 0xFFFF'FFFFULL;
       uint64_t const iter = data & 0xFFFF'FFFFULL;
@@ -211,7 +229,7 @@ int main(int argc, char** argv)
         return EXIT_FAILURE;
       }
 
-        uint64_t const remote_addr = remote_rma_addr_value(controller, *remote_key_info);
+      uint64_t const remote_addr = remote_rma_addr_value(controller, *remote_key_info);
       uint64_t const imm_data = make_imm_data(rank, it + 1);
       comm.write_data_delivery(local_source_buffers[r], message_size, r, remote_addr,
           remote_key_info->remote_key, imm_data, nullptr);
@@ -245,7 +263,7 @@ int main(int argc, char** argv)
       }
     }
 
-    if (!supports_delivery_complete)
+    if (!comm.delivery_complete_supported)
     {
       auto const visibility_wait_start = std::chrono::steady_clock::now();
       while (true)

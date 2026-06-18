@@ -101,6 +101,9 @@ struct communicator
   rank_type m_rank = -1;
   rank_type m_size = -1;
 
+  // assumed FI_DELIVERY_COMPLETE support until we test it, then we can disable if not supported
+  bool delivery_complete_supported = true;
+
   // --------------------------------------------------------------------
   communicator(test_controller* controller, rank_type rank, rank_type size)
     : m_controller(controller)
@@ -340,8 +343,7 @@ struct communicator
         "{:p}",
         "write_data_delivery", dst, size, remote_addr, remote_key, imm_data, (void*) request);
 
-    bool delivery_mode_supported = true;
-    while (true)
+    while (delivery_complete_supported)
     {
       ssize_t ret = fi_writemsg(
           m_tx_endpoint.get_ep(), &msg, uint64_t(FI_REMOTE_CQ_DATA | FI_DELIVERY_COMPLETE));
@@ -354,7 +356,7 @@ struct communicator
       if (ret == -FI_EBADFLAGS || ret == -FI_EOPNOTSUPP || ret == -FI_ENOPROTOOPT ||
           ret == -FI_ENOSYS || ret == -FI_EINVAL)
       {
-        delivery_mode_supported = false;
+        delivery_complete_supported = false;
         LIBFATBAT_WARN(comm_log,
             "{:<20} provider rejected FI_DELIVERY_COMPLETE flags, falling back to fi_writedata",
             "write_data_delivery");
@@ -368,7 +370,7 @@ struct communicator
       throw libfatbat::fabric_error(int(ret), "fi_writemsg");
     }
 
-    if (!delivery_mode_supported)
+    if (!delivery_complete_supported)
     {
       execute_fi_function(fi_writedata, "fi_writedata", m_tx_endpoint.get_ep(), reg.get_address(),
           size, reg.get_local_key(), imm_data, fi_addr_t(dst), remote_addr, remote_key, request);
